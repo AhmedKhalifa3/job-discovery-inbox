@@ -73,7 +73,8 @@ ATS_SITE_MAP = {
     "personio": "jobs.personio.de",
     "workday": "myworkdayjobs.com",
     "smartrecruiters": "jobs.smartrecruiters.com",
-    "wttj": "welcometothejungle.com/en/jobs"
+    "wttj": "welcometothejungle.com/en/jobs",
+    "stellenwerk": "stellenwerk.de"
 }
 
 def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
@@ -95,6 +96,17 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
                 queries_by_category["all_roles"].append(f'site:x.com "hiring" "{role}"')
             if contract_types and roles:
                 queries_by_category["all_roles"].append(f'site:x.com "hiring" "{contract_types[0]}" "{roles[0]}"')
+            continue
+
+        if plat_lower == "stellenwerk":
+            # Targeted German university job portal dorks (prioritizing Erlangen-Nürnberg & Bavaria)
+            primary_role = roles[0] if roles else "Software Engineer"
+            queries_by_category["all_roles"].append(f'stellenwerk.de/erlangen-nuernberg "{primary_role}"')
+            if len(roles) > 1:
+                queries_by_category["all_roles"].append(f'stellenwerk.de/erlangen-nuernberg "{roles[1]}"')
+            if contract_types:
+                queries_by_category["all_roles"].append(f'stellenwerk.de/erlangen-nuernberg "{contract_types[0]}"')
+                queries_by_category["all_roles"].append(f'stellenwerk.de/erlangen-nuernberg "{contract_types[0]}" "{primary_role}"')
             continue
 
         site_dork = ATS_SITE_MAP.get(plat_lower)
@@ -199,7 +211,7 @@ API_SOURCES: List[Dict[str, Any]] = [
 ATS_DOMAINS = [
     "greenhouse.io", "lever.co", "ashbyhq.com", "personio.de",
     "personio.com", "myworkdayjobs.com", "smartrecruiters.com", "notion.site",
-    "welcometothejungle.com", "x.com", "twitter.com"
+    "welcometothejungle.com", "x.com", "twitter.com", "stellenwerk.de"
 ]
 
 DOMAIN_BLACKLIST = [

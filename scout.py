@@ -72,6 +72,12 @@ def is_valid_job_url(url: str, is_dork: bool = False, custom_domains: Optional[L
             parts = [p for p in path.split('/') if p]
             if parts and parts[0] in ('home', 'explore', 'login', 'notifications', 'search', 'settings', 'hashtag'):
                 return False
+        if 'stellenwerk.de' in host:
+            parts = [p for p in path.split('/') if p]
+            if len(parts) < 2:
+                return False
+            if any(bad in parts for bad in ('magazin', 'faq', 'standorte', 'rechtliches', 'students', 'account', 'merkzettel', 'ki', 'karriereservice', 'alumni', 'events')):
+                return False
 
     return True
 
@@ -405,6 +411,16 @@ def extract_company_from_title(title: str, url: str) -> str:
             return f"@{handle_match.group(1)}"
         return "X / Twitter"
 
+    if "stellenwerk.de" in lower_url:
+        comp_match = re.search(r'\b(?:bei|at)\s+([A-Z0-9][A-Za-z0-9&_\.\s\-]{1,30})(?:[.,\n\r"\'!?:;/|]|$)', title, re.IGNORECASE)
+        if comp_match and comp_match.group(1).lower() not in ('stellenwerk', 'fau'):
+            return comp_match.group(1).strip()
+        match_city = re.search(r'stellenwerk\.de/([^/]+)/', url)
+        if match_city:
+            city_slug = match_city.group(1).replace('-', ' ').title()
+            return f"Stellenwerk ({city_slug})"
+        return "Stellenwerk"
+
     # Common formats: "Role at Company", "Company - Role", "Role | Company"
     if " at " in title:
         parts = title.split(" at ")
@@ -426,9 +442,9 @@ def extract_company_from_title(title: str, url: str) -> str:
     return "Company"
 
 def clean_role_title(title: str) -> str:
-    # Strip trailing website names like " | Greenhouse", " - Lever", " | Welcome to the Jungle", " / X", " | Twitter"
+    # Strip trailing website names like " | Greenhouse", " - Lever", " | Welcome to the Jungle", " / X", " | Twitter", " | stellenwerk"
     cleaned = re.sub(
-        r"\s*(\||-|–|/)\s*(Greenhouse|Lever|Ashby|Personio|Jobs|Careers|Welcome to the Jungle|WTTJ|X|Twitter).*$",
+        r"\s*(\||-|–|/)\s*(Greenhouse|Lever|Ashby|Personio|Jobs|Careers|Welcome to the Jungle|WTTJ|X|Twitter|stellenwerk).*$",
         "",
         title,
         flags=re.IGNORECASE
