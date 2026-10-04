@@ -163,6 +163,34 @@ Job Scout works 100% locally out-of-the-box (saving to `discovered_jobs.md` and 
 
 ---
 
+## 🔗 Connecting with Notion Tracker MCP & AI Agents
+
+If you use [Notion Job Tracker MCP](https://github.com/AhmedKhalifa3/notion-tracker-mcp) with Claude Desktop, Cursor, or Antigravity, you can connect your **Job Discovery Inbox** directly into your AI assistant.
+
+### 1. Link the Database in `notion-tracker-mcp`
+In your `notion-tracker-mcp/.env` file, add the same discovery database ID:
+```env
+NOTION_API_KEY=ntn_your_notion_integration_token_here
+NOTION_JOB_TRACKER_DB_ID=your_applications_tracker_database_id_here
+NOTION_DISCOVERED_JOBS_DB_ID=your_32_character_discovery_database_id_here  # <-- Add this!
+```
+
+### 2. Available AI Tools in Claude Desktop / Cursor
+Once configured, your AI assistant gains access to these dedicated tools:
+* 📥 **`list_discovered_jobs`**: Reads all unvetted roles with status `New` from your Discovery Inbox.
+* 🏷️ **`update_discovered_job_status`**: Marks a lead as `Approved`, `Dismissed`, or `Moved to Pipeline`.
+* 🚀 **`run_job_scout`**: Runs this Job Scout scraper on demand directly from your chat prompt.
+
+### 3. Example AI Prompts
+* **Review Leads:**
+  > *"Claude, check my Job Discovery Inbox for any new roles found today."*
+* **Trigger a Live Scan:**
+  > *"Claude, run the Job Scout for the past 24 hours in the 'all' category."*
+* **End-to-End Apply with Overleaf:**
+  > *"Take the top match from my Discovery Inbox, tailor my LaTeX CV using [Overleaf CV Agent](https://github.com/AhmedKhalifa3/overleaf-cv-agent), upload the compiled PDF to my Job Applications Tracker as Applied, and mark the lead in my Discovery Inbox as Approved."*
+
+---
+
 ## 🚀 Usage
 
 ### 1. Run a Daily Scan (Past 24 Hours)
