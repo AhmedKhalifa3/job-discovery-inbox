@@ -154,5 +154,6 @@ API_SOURCES: List[Dict[str, Any]] = [
 DOMAIN_BLACKLIST = [
     "wikipedia.org", "studis-online.de", "karrierebibel.de", "haufe.de",
     "aok.de", "tk.de", "studierenplus.de", "arbeitsagentur.de", "stepstone.de",
-    "indeed.com", "glassdoor.com", "kununu.com"
+    "indeed.com", "glassdoor.com", "kununu.com",
+    "bing.com", "duckduckgo.com", "googleadservices.com", "doubleclick.net"
 ]

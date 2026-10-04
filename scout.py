@@ -49,6 +49,8 @@ def is_valid_job_url(url: str) -> bool:
     if not url:
         return False
     lower_url = url.lower()
+    if any(ad in lower_url for ad in ['/aclick', '/aclk', 'ad_id=', 'msclkid=']):
+        return False
     for bad_domain in DOMAIN_BLACKLIST:
         if bad_domain in lower_url:
             return False
