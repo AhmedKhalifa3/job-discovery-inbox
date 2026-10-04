@@ -38,8 +38,11 @@ target_companies:
   - "bmwgroup.jobs"
   - "careers.fraunhofer.de"
 
-# Automatically disqualify postings requiring fluent/C1 German (Default: true)
-exclude_german_required: true
+# Disallow jobs that require languages you do not speak fluently (Optional)
+# Automatically compiles requirement patterns (e.g. fluent, mandatory, C1/C2)
+# Supported: German, French, Spanish, Italian, Dutch, Japanese, or any language name.
+excluded_language_requirements:
+  - "German"
 
 # Exclusion Keywords (Immediate disqualification filter across title & description)
 negative_keywords:

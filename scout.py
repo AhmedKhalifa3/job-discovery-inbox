@@ -68,27 +68,137 @@ def is_valid_job_url(url: str, is_dork: bool = False, custom_domains: Optional[L
 
     return True
 
-GERMAN_REQUIREMENT_PATTERNS = [
-    r'flie[ßs]end\w*\s+(auf\s+|in\s+)?deutsch',
-    r'deutsch\w*\s+(in\s+wort\s+und\s+schrift|erforderlich|vorausgesetzt|zwingend|notwendig)',
-    r'(sehr\s+gute|gute|verhandlungssicher\w*)\s+deutsch\w*',
-    r'sicher\s+(auf|in)\s+deutsch',
-    r'verhandlungssicher\w*\s+(auf|in)?\s*deutsch',
-    r'(fluent|native|business\s+fluent|proficient)\s+(in\s+)?german',
-    r'german\s+(is\s+)?(mandatory|essential|required)',
-    r'german\s*[:\-\(]\s*(c1|c2|fluent|native|b2)',
-    r'(c1|c2)\s*(-|\s)?(deutsch|german)',
-    r'deutschkenntnisse',
-    r'deutsch\s+auf\s+(b2|c1|c2)',
-    r'muttersprache\s+deutsch'
-]
-GERMAN_REGEX = re.compile('|'.join(GERMAN_REQUIREMENT_PATTERNS), re.IGNORECASE)
-
-TECH_ROLE_TOKENS = {
-    'engineer', 'developer', 'entwickler', 'sdet', 'qa', 'programmer',
-    'tester', 'testing', 'software', 'backend', 'frontend', 'fullstack',
-    'full-stack', 'ai', 'ml', 'machine learning', 'python', 'devops'
+LANGUAGE_DICTIONARY = {
+    "german": {
+        "names": ["german", "deutsch", "deutsche", "deutschen"],
+        "native_patterns": [
+            r"flie[ßs]end\w*\s+(auf\s+|in\s+)?deutsch\w*",
+            r"deutsch\w*\s+(in\s+wort\s+und\s+schrift|erforderlich|vorausgesetzt|zwingend|notwendig)",
+            r"(sehr\s+gute|gute|verhandlungssicher\w*)\s+deutsch\w*",
+            r"sicher\s+(auf|in)\s+deutsch\w*",
+            r"verhandlungssicher\w*\s+(auf|in)?\s*deutsch\w*",
+            r"deutsch\s*[:\-\(\s]*(c1|c2|b2|verhandlungssicher|flie[ßs]end)",
+            r"(c1|c2|b2)\s*(-|\s)?deutsch\w*",
+            r"deutschkenntnisse",
+            r"deutsch\s+auf\s+(b2|c1|c2)",
+            r"muttersprache\s+deutsch\w*",
+            r"hervorragende\s+deutschkenntnisse",
+        ]
+    },
+    "french": {
+        "names": ["french", "français", "francais"],
+        "native_patterns": [
+            r"fran[çc]ais\s+(courant|bilingue|exig[ée]|requis|indispensable|langue\s+maternelle)",
+            r"ma[îi]trise\s+(parfaite\s+)?du\s+fran[çc]ais",
+            r"(niveau\s+)?(c1|c2)\s+en\s+fran[çc]ais",
+            r"parler\s+couramment\s+fran[çc]ais",
+            r"langue\s+de\s+travail\s*:\s*fran[çc]ais",
+        ]
+    },
+    "spanish": {
+        "names": ["spanish", "español", "espanol", "castellano"],
+        "native_patterns": [
+            r"espa[ñn]ol\s+(fluido|avanzado|nativo|requerido|imprescindible|obligatorio)",
+            r"dominio\s+(del\s+)?espa[ñn]ol",
+            r"(nivel\s+)?(c1|c2)\s+de\s+espa[ñn]ol",
+            r"hablar\s+espa[ñn]ol\s+con\s+fluidez",
+        ]
+    },
+    "italian": {
+        "names": ["italian", "italiano"],
+        "native_patterns": [
+            r"italiano\s+(fluente|madrelingua|richiesto|indispensabile|avanzato)",
+            r"ottima\s+conoscenza\s+dell['’]italiano",
+            r"(livello\s+)?(c1|c2)\s+(di|in)\s+italiano",
+        ]
+    },
+    "dutch": {
+        "names": ["dutch", "nederlands"],
+        "native_patterns": [
+            r"nederlands\s+(vloeiend|moedertaal|vereist|noodzakelijk)",
+            r"uitstekende\s+beheersing\s+van\s+de\s+nederlandse\s+taal",
+            r"vloeiend\s+nederlands",
+            r"beheersing\s+van\s+het\s+nederlands",
+        ]
+    },
+    "portuguese": {
+        "names": ["portuguese", "português", "portugues"],
+        "native_patterns": [
+            r"portugu[êe]s\s+(fluente|nativo|obrigat[óo]rio|avan[çc]ado)",
+            r"dom[íi]nio\s+(do\s+)?portugu[êe]s",
+        ]
+    },
+    "polish": {
+        "names": ["polish", "polski"],
+        "native_patterns": [
+            r"j[ęe]zyk\s+polski\s+(bieg[łl]y|wymagany|ojczysty)",
+            r"bieg[łl]a\s+znajomo[ść]\s+j[ęe]zyka\s+polskiego",
+        ]
+    },
+    "swedish": {
+        "names": ["swedish", "svenska"],
+        "native_patterns": [
+            r"svenska\s+(flytande|modersm[åa]l|krav)",
+            r"flytande\s+svenska",
+        ]
+    }
 }
+
+def build_language_filter(excluded_languages: List[str]):
+    """Dynamically compiles requirement patterns and exemption phrases for excluded languages.
+
+    Supports native patterns for known languages plus international English patterns
+    (fluent, mandatory, C1/C2) for ANY language name provided in candidate profile.
+    """
+    if not excluded_languages:
+        return None, []
+
+    patterns = []
+    exemptions = []
+
+    for lang in excluded_languages:
+        lang_key = lang.strip().lower()
+        if not lang_key:
+            continue
+
+        known = LANGUAGE_DICTIONARY.get(lang_key)
+        if known:
+            patterns.extend(known.get("native_patterns", []))
+            names = known.get("names", [lang_key])
+        else:
+            names = [lang_key]
+
+        # International English phrasing patterns for this language
+        for name in names:
+            escaped_name = re.escape(name)
+            patterns.append(rf"\b(fluent|native|business\s+fluent|proficient)\s+(in\s+)?{escaped_name}\b")
+            patterns.append(rf"\b{escaped_name}\s+(is\s+)?(mandatory|essential|required|indispensable|compulsory|prerequisite)\b")
+            patterns.append(rf"\b{escaped_name}\s*[:\-\(\s]*(c1|c2|fluent|native|b2|advanced)\b")
+            patterns.append(rf"\b(c1|c2|b2)\s*(-|\s)?{escaped_name}\b")
+            patterns.append(rf"\b(minimum|level)\s+(c1|c2|b2)\s+(in\s+)?{escaped_name}\b")
+            patterns.append(rf"\bexcellent\s+(command\s+of\s+)?{escaped_name}\b")
+            patterns.append(rf"\bmust\s+(speak|be\s+fluent\s+in)\s+{escaped_name}\b")
+            patterns.append(rf"\b{escaped_name}\s+at\s+a\s+(c1|c2|b2|fluent)\s+level\b")
+
+            # Exemptions where language is mentioned but NOT mandatory
+            exemptions.extend([
+                f"no {name}",
+                f"{name} not required",
+                f"not required to speak {name}",
+                f"{name} is a plus",
+                f"{name} is an advantage",
+                f"{name} is beneficial",
+                f"{name} is optional",
+                f"bonus: {name}",
+                f"bonus: fluent {name}",
+                f"{name} a plus"
+            ])
+
+    if not patterns:
+        return None, []
+
+    compiled_regex = re.compile("|".join(patterns), re.IGNORECASE)
+    return compiled_regex, exemptions
 
 class ProfileScorer:
     """Evaluates and scores job opportunities dynamically based on a candidate's profile."""
@@ -101,7 +211,28 @@ class ProfileScorer:
         self.negative_keywords = [n.lower() for n in prof.get("negative_keywords", [])]
         self.negative_title_keywords = [nt.lower() for nt in prof.get("negative_title_keywords", [])]
         self.locations = [l.lower() for l in prof.get("locations", [])]
-        self.exclude_german_required = prof.get("exclude_german_required", True)
+        self.excluded_languages = list(prof.get("excluded_language_requirements", []))
+        if prof.get("exclude_german_required") and "German" not in self.excluded_languages and "german" not in [l.lower() for l in self.excluded_languages]:
+            self.excluded_languages.append("German")
+        self.language_regex, self.language_exemptions = build_language_filter(self.excluded_languages)
+
+        # Dynamically derive target title tokens from candidate profile (generic for any field)
+        self.target_title_tokens = set()
+        stop_words = {
+            "and", "the", "for", "with", "all", "our", "you", "new", "job", "career",
+            "junior", "senior", "lead", "staff", "intern", "associate", "working", "student",
+            "werkstudent", "praktikant", "level", "role", "position"
+        }
+        for role in self.target_roles:
+            self.target_title_tokens.add(role.lower())
+            for word in re.findall(r"\b[a-zA-Z]{3,}\b", role.lower()):
+                if word not in stop_words:
+                    self.target_title_tokens.add(word)
+        for skill in self.skills:
+            clean_s = skill.strip().lower()
+            if len(clean_s) >= 2 and clean_s not in stop_words:
+                self.target_title_tokens.add(clean_s)
+
         self.target_companies = prof.get("target_companies", [])
         self.target_company_domains = []
         self.target_company_names = []
@@ -125,24 +256,21 @@ class ProfileScorer:
         is_dork: bool = False,
         full_text: str = ""
     ) -> int:
-        if not is_valid_job_url(url, is_dork=is_dork, custom_domains=self.target_company_domains):
+        if url and not is_valid_job_url(url, is_dork=is_dork, custom_domains=self.target_company_domains):
             return -10
 
         lower_title = title.lower()
         search_body = full_text if full_text else snippet
         text = f"{title} {search_body} {location}".lower()
 
-        # 0. Enforce Technical Discipline in Title
-        matched_role_in_title = any(r in lower_title for r in self.target_roles)
-        has_tech_title_token = any(t in lower_title for t in TECH_ROLE_TOKENS)
-        if not (matched_role_in_title or has_tech_title_token):
-            return 0  # Disqualified: Non-engineering job title
+        # 0. Enforce Candidate Target Disciplines in Title
+        if self.target_title_tokens and not any(token in lower_title for token in self.target_title_tokens):
+            return 0  # Disqualified: Title does not match candidate's target disciplines
 
-        # 1. German Language Requirement Blocker
-        if self.exclude_german_required and GERMAN_REGEX.search(text):
-            exemptions = ["no german", "german not required", "not required to speak german", "german is a plus"]
-            if not any(ex in text for ex in exemptions):
-                return -10  # Disqualified: Requires fluent/C1 German
+        # 1. Excluded Language Requirements Blocker
+        if self.language_regex and self.language_regex.search(text):
+            if not any(ex in text for ex in self.language_exemptions):
+                return -10  # Disqualified: Requires language candidate does not speak fluently
 
         # 2. Profile Title-Only Exclusions (Disqualify if keyword appears in job title)
         for blocker in self.negative_title_keywords:
