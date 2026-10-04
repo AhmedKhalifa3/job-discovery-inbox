@@ -212,6 +212,24 @@ class ProfileScorer:
         self.negative_keywords = [n.lower() for n in prof.get("negative_keywords", [])]
         self.negative_title_keywords = [nt.lower() for nt in prof.get("negative_title_keywords", [])]
         self.locations = [l.lower() for l in prof.get("locations", [])]
+        # Expanded locations: If candidate targets Germany, automatically recognize all major German cities & states
+        self.expanded_locations = set(self.locations)
+        if any(g in self.locations for g in ("germany", "deutschland", "de")):
+            self.expanded_locations.update({
+                "berlin", "münchen", "munich", "hamburg", "frankfurt", "köln", "cologne",
+                "stuttgart", "düsseldorf", "dusseldorf", "leipzig", "dresden", "karlsruhe",
+                "nürnberg", "nuremberg", "erlangen", "hannover", "hanover", "bonn",
+                "mannheim", "heidelberg", "darmstadt", "aachen", "bremen", "freiburg",
+                "regensburg", "ingolstadt", "ulm", "augsburg", "würzburg", "wuerzburg",
+                "bayern", "bavaria", "baden-württemberg", "nrw", "hessen"
+            })
+        # Identify immediate home/priority cities (defaults to top 4 specific entries in locations)
+        self.home_cities = [c.lower() for c in prof.get("home_cities", [])]
+        if not self.home_cities:
+            general_keys = {"germany", "deutschland", "remote", "europe", "remote germany", "united states", "bayern", "bavaria"}
+            candidate_specifics = [l.lower() for l in self.locations if l.lower() not in general_keys]
+            self.home_cities = candidate_specifics[:4]
+
         self.excluded_languages = list(prof.get("excluded_language_requirements", []))
         if prof.get("exclude_german_required") and "German" not in self.excluded_languages and "german" not in [l.lower() for l in self.excluded_languages]:
             self.excluded_languages.append("German")
@@ -314,9 +332,12 @@ class ProfileScorer:
         if self.contract_types and any(ct in lower_title for ct in self.contract_types):
             score += 2
 
-        # 6. Preferred Locations Boost (from profile)
-        if self.locations and any(loc in text for loc in self.locations):
+        # 6. Preferred Locations Boost (from profile and expanded German cities)
+        if self.expanded_locations and any(loc in text for loc in self.expanded_locations):
             score += 2
+            # Extra priority boost if matching candidate's immediate home/priority cities (e.g. Nürnberg, Erlangen)
+            if any(hc in text for hc in self.home_cities):
+                score += 1
 
         # 7. Target Company Priority Boost (from profile)
         is_target_company = False

@@ -21,7 +21,7 @@ DEFAULT_PROFILE = {
     "target_roles": ["Software Engineer", "Backend Engineer", "AI Engineer"],
     "skills": ["Python", "FastAPI", "Docker", "PostgreSQL", "REST API"],
     "contract_types": ["Junior", "Associate", "Working Student"],
-    "locations": ["Remote", "Europe", "Germany", "United States"],
+    "locations": ["Remote", "Germany", "Berlin", "München", "Nürnberg", "Hamburg", "Frankfurt", "Europe"],
     "target_companies": [],
     "excluded_language_requirements": [],
     "negative_keywords": [
@@ -100,7 +100,33 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
             if roles:
                 queries_by_category["all_roles"].append(f'{site_dork} {ct} {roles[0]}')
 
-    # 2. Add Target Companies career searches
+    # 2. Add City-Targeted searches for key German tech hubs (Personio, Ashby)
+    locations = profile.get("locations", [])
+    general_loc_words = {"remote", "europe", "germany", "deutschland", "remote germany", "worldwide", "hybrid", "united states"}
+    candidate_cities = [
+        loc.strip() for loc in locations
+        if loc.strip().lower() not in general_loc_words
+    ]
+    is_targeting_germany = any(
+        g in [l.lower() for l in locations]
+        for g in ("germany", "deutschland", "nürnberg", "münchen", "berlin", "hamburg", "frankfurt")
+    )
+    if is_targeting_germany:
+        target_cities = []
+        for c in candidate_cities:
+            if c not in target_cities:
+                target_cities.append(c)
+        for hub in ["Berlin", "München", "Hamburg", "Frankfurt", "Karlsruhe", "Stuttgart"]:
+            if hub not in target_cities and len(target_cities) < 8:
+                target_cities.append(hub)
+
+        primary_role = roles[0] if roles else "Software Engineer"
+        for city in target_cities[:5]:
+            queries_by_category["all_roles"].append(f'jobs.personio.de {primary_role} {city}')
+            if contract_types:
+                queries_by_category["all_roles"].append(f'jobs.personio.de {contract_types[0]} {city}')
+
+    # 3. Add Target Companies career searches
     target_companies = profile.get("target_companies", [])
     for comp in target_companies:
         comp_str = str(comp).strip()
