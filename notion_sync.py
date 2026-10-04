@@ -2,6 +2,7 @@
 """
 
 import os
+import time
 import requests
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -33,7 +34,7 @@ class NotionJobSyncer:
         """Discovers exact property names and types from the target Notion database."""
         try:
             url = f"https://api.notion.com/v1/databases/{self.database_id}"
-            res = requests.get(url, headers=self.headers, timeout=10)
+            res = requests.get(url, headers=self.headers, timeout=25)
             if res.status_code == 200:
                 props = res.json().get("properties", {})
                 for name, details in props.items():
@@ -81,7 +82,7 @@ class NotionJobSyncer:
                 },
                 "page_size": 1
             }
-            res = requests.post(query_url, headers=self.headers, json=payload, timeout=10)
+            res = requests.post(query_url, headers=self.headers, json=payload, timeout=25)
             if res.status_code == 200:
                 results = res.json().get("results", [])
                 return len(results) > 0
@@ -170,17 +171,25 @@ class NotionJobSyncer:
                 "rich_text": [{"text": {"content": notes[:1900]}}]
             }
 
-        try:
-            create_url = "https://api.notion.com/v1/pages"
-            payload = {
-                "parent": {"database_id": self.database_id},
-                "properties": properties
-            }
-            res = requests.post(create_url, headers=self.headers, json=payload, timeout=10)
-            if res.status_code not in (200, 201):
-                # Fallback: log response error for debugging
+        create_url = "https://api.notion.com/v1/pages"
+        payload = {
+            "parent": {"database_id": self.database_id},
+            "properties": properties
+        }
+
+        for attempt in range(2):
+            try:
+                res = requests.post(create_url, headers=self.headers, json=payload, timeout=25)
+                if res.status_code in (200, 201):
+                    return True
                 return False
-            return True
-        except Exception as e:
-            print(f"Error pushing to Notion: {e}")
-            return False
+            except requests.exceptions.Timeout:
+                if attempt == 0:
+                    time.sleep(1.5)
+                    continue
+                print("Error pushing to Notion: request timed out after 2 attempts.")
+                return False
+            except Exception as e:
+                print(f"Error pushing to Notion: {e}")
+                return False
+        return False

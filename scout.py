@@ -8,6 +8,7 @@ with Notion & Overleaf pipeline.
 
 import os
 import sys
+import time
 import json
 import re
 import argparse
@@ -404,7 +405,13 @@ def search_duckduckgo(query: str, timelimit: str = "w", max_results: int = 15) -
     except ImportError:
         print("[Warning] duckduckgo_search not installed. Run: pip install duckduckgo_search")
     except Exception as e:
-        print(f"[Warning] Search error on query '{query[:40]}...': {e}")
+        err = str(e)
+        if "no results" in err.lower():
+            pass  # Normal when no roles were posted in this specific time window
+        elif "ratelimit" in err.lower():
+            time.sleep(2)
+        else:
+            print(f"[Notice] Search on query '{query[:40]}...': {e}")
     return jobs
 
 def fetch_arbeitnow_jobs() -> List[Dict[str, Any]]:
@@ -536,6 +543,7 @@ def run_scout(
         for q in queries:
             print(f"🔎 Scanning: {q[:70]}...")
             raw_results = search_duckduckgo(q, timelimit=timelimit)
+            time.sleep(0.35)
             for r in raw_results:
                 url = r.get("url", "")
                 if url in seen_urls:
