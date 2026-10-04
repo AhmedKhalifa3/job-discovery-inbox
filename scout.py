@@ -24,7 +24,8 @@ from config import (
     SEARCH_QUERIES,
     API_SOURCES,
     ACTIVE_PROFILE,
-    DOMAIN_BLACKLIST
+    DOMAIN_BLACKLIST,
+    ATS_DOMAINS
 )
 from notion_sync import NotionJobSyncer
 
@@ -45,7 +46,7 @@ def save_seen_jobs(seen_urls: set):
     with open(SEEN_JOBS_FILE, "w", encoding="utf-8") as f:
         json.dump(list(seen_urls), f, indent=2)
 
-def is_valid_job_url(url: str) -> bool:
+def is_valid_job_url(url: str, is_dork: bool = False) -> bool:
     if not url:
         return False
     lower_url = url.lower()
@@ -54,6 +55,16 @@ def is_valid_job_url(url: str) -> bool:
     for bad_domain in DOMAIN_BLACKLIST:
         if bad_domain in lower_url:
             return False
+
+    if is_dork:
+        from urllib.parse import urlparse
+        host = urlparse(url).netloc.lower()
+        path = urlparse(url).path.lower().strip('/')
+        if not any(d in host for d in ATS_DOMAINS):
+            return False
+        if not path or path in ('careers', 'jobs', 'about', 'search'):
+            return False
+
     return True
 
 class ProfileScorer:
@@ -68,8 +79,8 @@ class ProfileScorer:
         self.negative_title_keywords = [nt.lower() for nt in prof.get("negative_title_keywords", [])]
         self.locations = [l.lower() for l in prof.get("locations", [])]
 
-    def score(self, title: str, snippet: str, location: str = "", url: str = "") -> int:
-        if not is_valid_job_url(url):
+    def score(self, title: str, snippet: str, location: str = "", url: str = "", is_dork: bool = False) -> int:
+        if not is_valid_job_url(url, is_dork=is_dork):
             return -10
 
         lower_title = title.lower()
@@ -129,10 +140,11 @@ def score_job(
     snippet: str,
     location: str = "",
     url: str = "",
+    is_dork: bool = False,
     scorer: Optional[ProfileScorer] = None
 ) -> int:
     active_scorer = scorer or DEFAULT_SCORER
-    return active_scorer.score(title, snippet, location, url)
+    return active_scorer.score(title, snippet, location, url, is_dork=is_dork)
 
 def extract_company_from_title(title: str, url: str) -> str:
     # Common formats: "Role at Company", "Company - Role", "Role | Company"
@@ -295,7 +307,7 @@ def run_scout(
                 if url in seen_urls:
                     continue
 
-                score = score_job(r["role"], r["snippet"], r["location"], url=url, scorer=scorer)
+                score = score_job(r["role"], r["snippet"], r["location"], url=url, is_dork=True, scorer=scorer)
                 if score >= 1:
                     r["score"] = score
                     r["category"] = cat

@@ -135,9 +135,15 @@ API_SOURCES: List[Dict[str, Any]] = [
     }
 ]
 
+ATS_DOMAINS = [
+    "greenhouse.io", "lever.co", "ashbyhq.com", "personio.de",
+    "personio.com", "myworkdayjobs.com", "smartrecruiters.com", "notion.site"
+]
+
 DOMAIN_BLACKLIST = [
     "wikipedia.org", "studis-online.de", "karrierebibel.de", "haufe.de",
     "aok.de", "tk.de", "studierenplus.de", "arbeitsagentur.de", "stepstone.de",
     "indeed.com", "glassdoor.com", "kununu.com",
-    "bing.com", "duckduckgo.com", "googleadservices.com", "doubleclick.net"
+    "bing.com", "duckduckgo.com", "googleadservices.com", "doubleclick.net",
+    "linkedin.com", "x.com", "twitter.com", "github.com", "reddit.com", "youtube.com"
 ]
