@@ -60,27 +60,56 @@ def score_job(title: str, snippet: str, location: str = "", url: str = "") -> in
     if not is_valid_job_url(url):
         return -10
 
+    lower_title = title.lower()
     text = f"{title} {snippet} {location}".lower()
 
-    # Immediate negative filter
-    for neg in NEGATIVE_KEYWORDS:
-        if neg in text:
+    # 1. Strict Title Seniority & Non-Tech Role Blockers
+    TITLE_BLOCKERS = [
+        "senior", "sr.", "sr ", "lead", "tech lead", "principal", "staff",
+        "director", "head of", "vp", "manager", "architect",
+        "design", "designer", "visual", "brand", "graphic", "ui/ux",
+        "sales", "marketing", "recruiting", "talent", "hr", "human resources",
+        "copywriter", "content writer", "account executive", "commercial",
+        "operations manager", "social media", "e-commerce", "customer support"
+    ]
+    for blocker in TITLE_BLOCKERS:
+        if blocker in lower_title:
             return -10
 
+    # 2. General Profile Negative Filter
+    for neg in NEGATIVE_KEYWORDS:
+        if neg in lower_title:
+            return -10
+        # If strict requirement (e.g. years of experience or language) appears in text
+        if any(x in neg for x in ["year", "deutsch", "german"]):
+            if neg in text:
+                return -10
+
     score = 0
-    # Technical relevance check: title or snippet must match technical profile
+    # 3. Technical relevance: must match a real technical discipline/skill
+    # Avoid treating generic contract types like 'working student' as a tech hit by itself
+    CONTRACT_TYPES = {"working student", "werkstudent", "intern", "internship", "junior", "associate", "graduate"}
+
     tech_hit = False
     for pos in POSITIVE_KEYWORDS:
-        if pos in text:
+        if pos in CONTRACT_TYPES:
+            continue
+
+        if pos in lower_title:
+            tech_hit = True
+            score += 3  # High boost for technical discipline in the title
+        elif pos in text:
             tech_hit = True
             score += 1
-            if pos in title.lower():
-                score += 2  # Double weight for title matches
 
     if not tech_hit:
         return 0
 
-    # Location boost
+    # 4. Contract type boost (e.g. Werkstudent, Junior)
+    if any(ct in lower_title for ct in CONTRACT_TYPES):
+        score += 2
+
+    # 5. Location boost
     for loc in LOCATION_BOOSTS:
         if loc in text:
             score += 2
