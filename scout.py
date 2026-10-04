@@ -393,8 +393,8 @@ def extract_company_from_title(title: str, url: str) -> str:
     return "Company"
 
 def clean_role_title(title: str) -> str:
-    # Strip trailing website names like " | Greenhouse", " - Lever"
-    cleaned = re.sub(r"\s*(\||-|–)\s*(Greenhouse|Lever|Ashby|Personio|Jobs|Careers).*$", "", title, flags=re.IGNORECASE)
+    # Strip trailing website names like " | Greenhouse", " - Lever", " | Welcome to the Jungle"
+    cleaned = re.sub(r"\s*(\||-|–)\s*(Greenhouse|Lever|Ashby|Personio|Jobs|Careers|Welcome to the Jungle|WTTJ).*$", "", title, flags=re.IGNORECASE)
     return cleaned.strip()
 
 def search_duckduckgo(query: str, timelimit: str = "w", max_results: int = 15) -> List[Dict[str, Any]]:

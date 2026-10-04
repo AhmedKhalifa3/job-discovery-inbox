@@ -72,7 +72,8 @@ ATS_SITE_MAP = {
     "ashby": "jobs.ashbyhq.com",
     "personio": "jobs.personio.de",
     "workday": "myworkdayjobs.com",
-    "smartrecruiters": "jobs.smartrecruiters.com"
+    "smartrecruiters": "jobs.smartrecruiters.com",
+    "wttj": "welcometothejungle.com/en/jobs"
 }
 
 def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
@@ -189,7 +190,8 @@ API_SOURCES: List[Dict[str, Any]] = [
 
 ATS_DOMAINS = [
     "greenhouse.io", "lever.co", "ashbyhq.com", "personio.de",
-    "personio.com", "myworkdayjobs.com", "smartrecruiters.com", "notion.site"
+    "personio.com", "myworkdayjobs.com", "smartrecruiters.com", "notion.site",
+    "welcometothejungle.com"
 ]
 
 DOMAIN_BLACKLIST = [
