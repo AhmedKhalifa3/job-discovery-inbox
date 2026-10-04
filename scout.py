@@ -363,9 +363,9 @@ def main():
     )
     parser.add_argument(
         "--fresh",
-        choices=["24h", "week"],
+        choices=["24h", "week", "any"],
         default="week",
-        help="Freshness window (24h or week)"
+        help="Freshness window (24h, week, or any)"
     )
     parser.add_argument(
         "--push-notion",
@@ -379,7 +379,12 @@ def main():
     )
 
     args = parser.parse_args()
-    timelimit = "d" if args.fresh == "24h" else "w"
+    if args.fresh == "24h":
+        timelimit = "d"
+    elif args.fresh == "week":
+        timelimit = "w"
+    else:
+        timelimit = None
 
     if args.profile:
         from config import load_profile, generate_search_dorks

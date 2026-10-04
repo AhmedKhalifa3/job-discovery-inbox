@@ -65,12 +65,12 @@ ACTIVE_PROFILE = load_profile()
 
 # Supported ATS platform site prefixes
 ATS_SITE_MAP = {
-    "greenhouse": "site:greenhouse.io",
-    "lever": "site:lever.co",
-    "ashby": "site:ashbyhq.com",
-    "personio": "site:personio.de",
-    "workday": "site:myworkdayjobs.com",
-    "smartrecruiters": "site:smartrecruiters.com"
+    "greenhouse": "boards.greenhouse.io",
+    "lever": "jobs.lever.co",
+    "ashby": "jobs.ashbyhq.com",
+    "personio": "jobs.personio.de",
+    "workday": "myworkdayjobs.com",
+    "smartrecruiters": "jobs.smartrecruiters.com"
 }
 
 def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
@@ -100,7 +100,7 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
 
     # 2. Add Notion open roles dork
     if roles:
-        queries_by_category["all_roles"].append(f'site:notion.site "we are hiring" {roles[0]}')
+        queries_by_category["all_roles"].append(f'notion.site "we are hiring" {roles[0]}')
 
     # 3. Add custom queries if any
     if custom_queries:
