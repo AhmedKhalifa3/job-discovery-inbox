@@ -23,16 +23,12 @@ contract_types:
   - "Junior"
   - "Associate"
 
-# Desired Locations & Work Styles (Supports cities, regions, and countries)
+# Desired Locations & Work Styles
 locations:
-  - "Berlin"
-  - "Munich"
-  - "Hamburg"
-  - "Frankfurt"
-  - "Germany"
-  - "Remote Germany"
   - "Remote"
   - "Europe"
+  - "Germany"
+  - "United States"
 
 # Target Companies & Career Websites to Track Specially (Optional)
 # Accepts career site domains (e.g. 'jobs.siemens.com', 'bmwgroup.jobs') or company names (e.g. 'Siemens', 'Celonis')

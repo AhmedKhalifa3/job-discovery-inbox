@@ -21,7 +21,7 @@ DEFAULT_PROFILE = {
     "target_roles": ["Software Engineer", "Backend Engineer", "AI Engineer"],
     "skills": ["Python", "FastAPI", "Docker", "PostgreSQL", "REST API"],
     "contract_types": ["Junior", "Associate", "Working Student"],
-    "locations": ["Remote", "Germany", "Berlin", "München", "Nürnberg", "Hamburg", "Frankfurt", "Europe"],
+    "locations": ["Remote", "Europe", "Germany", "United States"],
     "target_companies": [],
     "excluded_language_requirements": [],
     "negative_keywords": [
