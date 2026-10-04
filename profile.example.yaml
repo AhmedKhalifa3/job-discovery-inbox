@@ -38,6 +38,9 @@ target_companies:
   - "bmwgroup.jobs"
   - "careers.fraunhofer.de"
 
+# Automatically disqualify postings requiring fluent/C1 German (Default: true)
+exclude_german_required: true
+
 # Exclusion Keywords (Immediate disqualification filter across title & description)
 negative_keywords:
   - "staff"

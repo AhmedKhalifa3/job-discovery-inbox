@@ -68,6 +68,28 @@ def is_valid_job_url(url: str, is_dork: bool = False, custom_domains: Optional[L
 
     return True
 
+GERMAN_REQUIREMENT_PATTERNS = [
+    r'flie[ßs]end\w*\s+(auf\s+|in\s+)?deutsch',
+    r'deutsch\w*\s+(in\s+wort\s+und\s+schrift|erforderlich|vorausgesetzt|zwingend|notwendig)',
+    r'(sehr\s+gute|gute|verhandlungssicher\w*)\s+deutsch\w*',
+    r'sicher\s+(auf|in)\s+deutsch',
+    r'verhandlungssicher\w*\s+(auf|in)?\s*deutsch',
+    r'(fluent|native|business\s+fluent|proficient)\s+(in\s+)?german',
+    r'german\s+(is\s+)?(mandatory|essential|required)',
+    r'german\s*[:\-\(]\s*(c1|c2|fluent|native|b2)',
+    r'(c1|c2)\s*(-|\s)?(deutsch|german)',
+    r'deutschkenntnisse',
+    r'deutsch\s+auf\s+(b2|c1|c2)',
+    r'muttersprache\s+deutsch'
+]
+GERMAN_REGEX = re.compile('|'.join(GERMAN_REQUIREMENT_PATTERNS), re.IGNORECASE)
+
+TECH_ROLE_TOKENS = {
+    'engineer', 'developer', 'entwickler', 'sdet', 'qa', 'programmer',
+    'tester', 'testing', 'software', 'backend', 'frontend', 'fullstack',
+    'full-stack', 'ai', 'ml', 'machine learning', 'python', 'devops'
+}
+
 class ProfileScorer:
     """Evaluates and scores job opportunities dynamically based on a candidate's profile."""
 
@@ -79,6 +101,7 @@ class ProfileScorer:
         self.negative_keywords = [n.lower() for n in prof.get("negative_keywords", [])]
         self.negative_title_keywords = [nt.lower() for nt in prof.get("negative_title_keywords", [])]
         self.locations = [l.lower() for l in prof.get("locations", [])]
+        self.exclude_german_required = prof.get("exclude_german_required", True)
         self.target_companies = prof.get("target_companies", [])
         self.target_company_domains = []
         self.target_company_names = []
@@ -93,26 +116,47 @@ class ProfileScorer:
             else:
                 self.target_company_names.append(c_str)
 
-    def score(self, title: str, snippet: str, location: str = "", url: str = "", is_dork: bool = False) -> int:
+    def score(
+        self,
+        title: str,
+        snippet: str,
+        location: str = "",
+        url: str = "",
+        is_dork: bool = False,
+        full_text: str = ""
+    ) -> int:
         if not is_valid_job_url(url, is_dork=is_dork, custom_domains=self.target_company_domains):
             return -10
 
         lower_title = title.lower()
-        text = f"{title} {snippet} {location}".lower()
+        search_body = full_text if full_text else snippet
+        text = f"{title} {search_body} {location}".lower()
 
-        # 1. Profile Title-Only Exclusions (Disqualify if keyword appears in job title)
+        # 0. Enforce Technical Discipline in Title
+        matched_role_in_title = any(r in lower_title for r in self.target_roles)
+        has_tech_title_token = any(t in lower_title for t in TECH_ROLE_TOKENS)
+        if not (matched_role_in_title or has_tech_title_token):
+            return 0  # Disqualified: Non-engineering job title
+
+        # 1. German Language Requirement Blocker
+        if self.exclude_german_required and GERMAN_REGEX.search(text):
+            exemptions = ["no german", "german not required", "not required to speak german", "german is a plus"]
+            if not any(ex in text for ex in exemptions):
+                return -10  # Disqualified: Requires fluent/C1 German
+
+        # 2. Profile Title-Only Exclusions (Disqualify if keyword appears in job title)
         for blocker in self.negative_title_keywords:
             if blocker in lower_title:
                 return -10
 
-        # 2. Profile General Negative Exclusions (Disqualify if in title or text)
+        # 3. Profile General Negative Exclusions (Disqualify if in title or text)
         for neg in self.negative_keywords:
             if neg in lower_title or neg in text:
                 return -10
 
         score = 0
 
-        # 3. Target Role & Skill Matching from Profile
+        # 4. Target Role & Skill Matching from Profile
         matched_role = False
         for role in self.target_roles:
             if role in lower_title:
@@ -137,15 +181,15 @@ class ProfileScorer:
         if not (matched_role or matched_skill):
             return 0
 
-        # 4. Preferred Contract / Seniority Types Boost (from profile)
+        # 5. Preferred Contract / Seniority Types Boost (from profile)
         if self.contract_types and any(ct in lower_title for ct in self.contract_types):
             score += 2
 
-        # 5. Preferred Locations Boost (from profile)
+        # 6. Preferred Locations Boost (from profile)
         if self.locations and any(loc in text for loc in self.locations):
             score += 2
 
-        # 6. Target Company Priority Boost (from profile)
+        # 7. Target Company Priority Boost (from profile)
         is_target_company = False
         lower_url = url.lower()
         for c_dom in self.target_company_domains:
@@ -171,10 +215,11 @@ def score_job(
     location: str = "",
     url: str = "",
     is_dork: bool = False,
+    full_text: str = "",
     scorer: Optional[ProfileScorer] = None
 ) -> int:
     active_scorer = scorer or DEFAULT_SCORER
-    return active_scorer.score(title, snippet, location, url, is_dork=is_dork)
+    return active_scorer.score(title, snippet, location, url, is_dork=is_dork, full_text=full_text)
 
 def extract_company_from_title(title: str, url: str) -> str:
     # Common formats: "Role at Company", "Company - Role", "Role | Company"
@@ -258,7 +303,8 @@ def fetch_arbeitnow_jobs() -> List[Dict[str, Any]]:
                     "url": item.get("url", ""),
                     "snippet": snippet,
                     "location": loc,
-                    "source": "Arbeitnow API"
+                    "source": "Arbeitnow API",
+                    "full_text": description
                 })
     except Exception as e:
         print(f"[Warning] Failed to fetch Arbeitnow: {e}")
@@ -280,7 +326,8 @@ def fetch_jobicy_jobs() -> List[Dict[str, Any]]:
                     "url": item.get("url", ""),
                     "snippet": item.get("jobExcerpt", ""),
                     "location": item.get("jobGeo", "Remote"),
-                    "source": "Jobicy API"
+                    "source": "Jobicy API",
+                    "full_text": item.get("jobDescription", item.get("jobExcerpt", ""))
                 })
     except Exception as e:
         print(f"[Warning] Failed to fetch Jobicy: {e}")
@@ -308,7 +355,8 @@ def fetch_remotive_jobs() -> List[Dict[str, Any]]:
                     "url": url,
                     "snippet": snippet,
                     "location": loc,
-                    "source": "Remotive API"
+                    "source": "Remotive API",
+                    "full_text": description
                 })
     except Exception as e:
         print(f"[Warning] Failed to fetch Remotive: {e}")
@@ -381,7 +429,8 @@ def run_scout(
             if url in seen_urls:
                 continue
 
-            score = score_job(r["role"], r["snippet"], r["location"], url=url, scorer=scorer)
+            full_text = r.get("full_text", "")
+            score = score_job(r["role"], r["snippet"], r["location"], url=url, full_text=full_text, scorer=scorer)
             if score >= 1:
                 r["score"] = score
                 r["category"] = "api_feed"

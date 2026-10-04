@@ -23,6 +23,7 @@ DEFAULT_PROFILE = {
     "contract_types": ["Junior", "Associate", "Working Student"],
     "locations": ["Remote", "Europe", "Germany", "United States"],
     "target_companies": [],
+    "exclude_german_required": True,
     "negative_keywords": [
         "staff", "principal", "director", "head of", "vp",
         "8+ years", "10+ years", "sales", "marketing", "recruiting", "hr"
