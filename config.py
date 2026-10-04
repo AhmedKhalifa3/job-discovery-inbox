@@ -65,19 +65,18 @@ ACTIVE_PROFILE = load_profile()
 
 # Supported ATS platform site prefixes
 ATS_SITE_MAP = {
-    "greenhouse": "site:boards.greenhouse.io",
-    "lever": "site:jobs.lever.co",
-    "ashby": "site:jobs.ashbyhq.com",
-    "personio": "site:jobs.personio.de",
+    "greenhouse": "site:greenhouse.io",
+    "lever": "site:lever.co",
+    "ashby": "site:ashbyhq.com",
+    "personio": "site:personio.de",
     "workday": "site:myworkdayjobs.com",
-    "smartrecruiters": "site:jobs.smartrecruiters.com"
+    "smartrecruiters": "site:smartrecruiters.com"
 }
 
 def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
-    """Generates precision ATS search dorks based on candidate profile."""
+    """Generates clean ATS search dorks based on candidate profile."""
     roles = profile.get("target_roles", [])
-    skills = profile.get("skills", [])
-    locations = profile.get("locations", [])
+    contract_types = profile.get("contract_types", [])
     platforms = profile.get("ats_platforms", [])
     custom_queries = profile.get("custom_queries", [])
 
@@ -85,38 +84,23 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
         "all_roles": []
     }
 
-    # Format role string
-    roles_formatted = " OR ".join(f'"{r}"' for r in roles[:6])
-    roles_str = f"({roles_formatted})" if roles else '"Software Engineer"'
-
-    # Format locations string
-    loc_formatted = " OR ".join(f'"{loc}"' for loc in locations[:5])
-    loc_str = f"({loc_formatted})" if locations else '"Remote"'
-
-    # 1. Generate per-platform dorks
+    # 1. Generate clean per-platform dorks for top roles
     for plat in platforms:
         site_dork = ATS_SITE_MAP.get(plat.lower())
         if not site_dork:
             continue
 
-        # Split skills into batches for query length limits
-        for i in range(0, min(len(skills), 6), 3):
-            skill_batch = skills[i:i+3]
-            skill_formatted = " OR ".join(f'"{s}"' for s in skill_batch)
-            skill_str = f"({skill_formatted})" if skill_formatted else ""
+        for role in roles[:3]:
+            queries_by_category["all_roles"].append(f'{site_dork} {role}')
 
-            query = f'{site_dork} {roles_str}'
-            if skill_str:
-                query += f' {skill_str}'
-            if loc_str:
-                query += f' {loc_str}'
+        # Pair top contract types with primary target role
+        for ct in contract_types[:2]:
+            if roles:
+                queries_by_category["all_roles"].append(f'{site_dork} {ct} {roles[0]}')
 
-            queries_by_category["all_roles"].append(query)
-
-    # 2. Add Notion and open calls dork
-    queries_by_category["all_roles"].append(
-        f'site:notion.site ("we are hiring" OR "open roles") {roles_str} {loc_str}'
-    )
+    # 2. Add Notion open roles dork
+    if roles:
+        queries_by_category["all_roles"].append(f'site:notion.site "we are hiring" {roles[0]}')
 
     # 3. Add custom queries if any
     if custom_queries:
