@@ -109,32 +109,57 @@ ats_platforms:
 
 ---
 
-### 3. Configure Notion Sync (Optional)
+### 3. Setting Up Notion Sync (Optional)
 
-If you want to sync discovered jobs directly to Notion:
+Job Scout works 100% locally out-of-the-box (saving to `discovered_jobs.md` and `discovered_jobs.json`). If you want discovered leads synced automatically to a private Notion database:
 
-1. Copy `.env.example` to `.env`:
+#### Step A: Create an Internal Notion Integration Token
+1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations).
+2. Click **+ New integration**.
+3. Name it **`Job Discovery Agent`** (or reuse your existing integration).
+4. Select your target Notion workspace and click **Submit**.
+5. Copy the **Internal Integration Secret** (starts with `ntn_` or `secret_`).
+
+#### Step B: Create the "Job Discovery Inbox" Database in Notion
+1. In Notion, create a new full-page table database named **`Job Discovery Inbox`**.
+2. Add the following columns (Job Scout dynamically detects your property names and types):
+
+| Column Name | Notion Property Type | Description |
+| :--- | :--- | :--- |
+| **`Company`** | Title | Company Name |
+| **`Role`** | Text (Rich Text) | Job Title |
+| **`Job URL`** | URL | Direct link to ATS / application |
+| **`Location`** | Text (Rich Text) | Location / Remote status |
+| **`Category`** | Select | Category (e.g. `Backend`, `AI Agents`) |
+| **`Score`** | Number *(or Select)* | Match score (1–5) |
+| **`Status`** | Select *(or Status)* | `New`, `Approved`, `Dismissed` (default: `New`) |
+| **`Date`** | Date | Discovery date |
+| **`Notes`** | Text (Rich Text) | Job description snippet & match rationale |
+
+#### Step C: Connect the Database to Your Integration
+1. On your newly created database page, click the **`...`** (options menu) in the top-right corner.
+2. Scroll down and click **Connections** &rarr; **Connect to...**.
+3. Select your integration (**`Job Discovery Agent`**) and confirm.
+   > ⚠️ **Important:** Without this step, Notion's API will return a `404 Object not found` error because integrations cannot access pages unless explicitly shared with them.
+
+#### Step D: Get Your Database ID
+1. Open the database in your browser or click **Share** &rarr; **Copy link**.
+2. Look at the URL structure:
+   ```text
+   https://www.notion.so/workspace/{DATABASE_ID}?v=...
+   ```
+3. Copy the 32-character string between the last slash and the question mark.
+
+#### Step E: Configure Environment Variables (`.env`)
+1. Copy the example environment file:
    ```bash
    cp .env.example .env
    ```
-2. Set your credentials:
+2. Add your token and database ID:
    ```env
    NOTION_API_KEY=ntn_your_notion_integration_token_here
    NOTION_DISCOVERED_JOBS_DB_ID=your_32_character_database_id_here
    ```
-
-3. **Recommended Notion Database Schema:**
-   | Column Name | Notion Type | Purpose |
-   | :--- | :--- | :--- |
-   | **`Company`** | Title | Name of the company |
-   | **`Role`** | Text | Job title |
-   | **`Job URL`** | URL | Direct link to ATS / application |
-   | **`Location`** | Text | Remote / City / Country |
-   | **`Category`** | Select / Text | Lead category |
-   | **`Score`** | Number | Match score (1–5) |
-   | **`Status`** | Select | `New`, `Approved`, `Dismissed` |
-   | **`Date`** | Date | Discovery date |
-   | **`Notes`** | Text | Match rationale & JD snippet |
 
 ---
 
