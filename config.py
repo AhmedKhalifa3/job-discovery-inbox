@@ -135,15 +135,15 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
         if "." in comp_str:
             from urllib.parse import urlparse
             parsed_domain = urlparse(comp_str if "://" in comp_str else f"https://{comp_str}").netloc or comp_str
-            for role in roles[:2]:
-                queries_by_category["all_roles"].append(f"{parsed_domain} {role}")
-            for ct in contract_types[:2]:
-                queries_by_category["all_roles"].append(f"{parsed_domain} {ct}")
+            if roles:
+                queries_by_category["all_roles"].append(f"{parsed_domain} {roles[0]}")
+            if contract_types:
+                queries_by_category["all_roles"].append(f"{parsed_domain} {contract_types[0]}")
         else:
-            for role in roles[:2]:
-                queries_by_category["all_roles"].append(f'"{comp_str}" careers {role}')
-            for ct in contract_types[:1]:
-                queries_by_category["all_roles"].append(f'"{comp_str}" careers {ct}')
+            if roles:
+                queries_by_category["all_roles"].append(f'"{comp_str}" careers {roles[0]}')
+            if contract_types:
+                queries_by_category["all_roles"].append(f'"{comp_str}" careers {contract_types[0]}')
 
     # 3. Add Notion open roles dork
     if roles:
