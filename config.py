@@ -1,6 +1,6 @@
 """Generic configuration and profile loader for Job Scout.
 
-Loads candidate criteria from 'profile.yaml' (or 'profile.json'),
+Loads candidate criteria dynamically from 'profile.yaml' (or 'profile.json'),
 generates precision ATS search dorks, and configures ranking weights.
 """
 
@@ -20,10 +20,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PROFILE = {
     "target_roles": ["Software Engineer", "Backend Engineer", "AI Engineer"],
     "skills": ["Python", "FastAPI", "Docker", "PostgreSQL", "REST API"],
+    "contract_types": ["Junior", "Associate", "Working Student"],
     "locations": ["Remote", "Europe", "Germany", "United States"],
     "negative_keywords": [
         "staff", "principal", "director", "head of", "vp",
         "8+ years", "10+ years", "sales", "marketing", "recruiting", "hr"
+    ],
+    "negative_title_keywords": [
+        "senior", "sr.", "lead", "manager", "architect"
     ],
     "ats_platforms": ["greenhouse", "lever", "ashby", "personio", "workday"],
     "include_api_feeds": True,
@@ -123,21 +127,15 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
 # Exported search queries
 SEARCH_QUERIES = generate_search_dorks(ACTIVE_PROFILE)
 
-# Keyword Scoring Lists
-POSITIVE_KEYWORDS = list(set([
-    item.lower() for item in (
-        ACTIVE_PROFILE.get("target_roles", []) +
-        ACTIVE_PROFILE.get("skills", [])
-    )
-]))
+# Exported Keyword Lists dynamically derived from profile
+TARGET_ROLES = [r.lower() for r in ACTIVE_PROFILE.get("target_roles", [])]
+SKILLS = [s.lower() for s in ACTIVE_PROFILE.get("skills", [])]
+CONTRACT_TYPES = [c.lower() for c in ACTIVE_PROFILE.get("contract_types", [])]
 
-NEGATIVE_KEYWORDS = [
-    item.lower() for item in ACTIVE_PROFILE.get("negative_keywords", [])
-]
-
-LOCATION_BOOSTS = [
-    item.lower() for item in ACTIVE_PROFILE.get("locations", [])
-]
+POSITIVE_KEYWORDS = list(set(TARGET_ROLES + SKILLS))
+NEGATIVE_KEYWORDS = [item.lower() for item in ACTIVE_PROFILE.get("negative_keywords", [])]
+NEGATIVE_TITLE_KEYWORDS = [item.lower() for item in ACTIVE_PROFILE.get("negative_title_keywords", [])]
+LOCATION_BOOSTS = [item.lower() for item in ACTIVE_PROFILE.get("locations", [])]
 
 # Free Developer Job APIs for direct structured ingestion
 API_SOURCES: List[Dict[str, Any]] = [

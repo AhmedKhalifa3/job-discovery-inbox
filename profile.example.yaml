@@ -18,6 +18,11 @@ skills:
   - "PostgreSQL"
   - "REST API"
 
+# Contract / Seniority Types to Boost (Optional, e.g. "Junior", "Working Student", "Intern")
+contract_types:
+  - "Junior"
+  - "Associate"
+
 # Desired Locations & Work Styles
 locations:
   - "Remote"
@@ -25,10 +30,8 @@ locations:
   - "Germany"
   - "United States"
 
-# Exclusion Keywords (Immediate disqualification filter)
+# Exclusion Keywords (Immediate disqualification filter across title & description)
 negative_keywords:
-  - "senior"
-  - "lead"
   - "staff"
   - "principal"
   - "director"
@@ -40,7 +43,17 @@ negative_keywords:
   - "marketing"
   - "recruiting"
   - "hr"
+
+# Title-Only Exclusion Keywords (Disqualifies ONLY if found in the job title)
+# Great for seniority or role titles you want to avoid without excluding descriptions that merely mention them.
+negative_title_keywords:
+  - "senior"
+  - "sr."
+  - "lead"
+  - "manager"
+  - "architect"
   - "design"
+  - "designer"
 
 # ATS Platforms to Hunt On
 # Supported: greenhouse, lever, ashby, personio, workday, smartrecruiters

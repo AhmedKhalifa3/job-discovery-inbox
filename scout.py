@@ -23,9 +23,7 @@ load_dotenv()
 from config import (
     SEARCH_QUERIES,
     API_SOURCES,
-    POSITIVE_KEYWORDS,
-    NEGATIVE_KEYWORDS,
-    LOCATION_BOOSTS,
+    ACTIVE_PROFILE,
     DOMAIN_BLACKLIST
 )
 from notion_sync import NotionJobSyncer
@@ -56,66 +54,83 @@ def is_valid_job_url(url: str) -> bool:
             return False
     return True
 
-def score_job(title: str, snippet: str, location: str = "", url: str = "") -> int:
-    if not is_valid_job_url(url):
-        return -10
+class ProfileScorer:
+    """Evaluates and scores job opportunities dynamically based on a candidate's profile."""
 
-    lower_title = title.lower()
-    text = f"{title} {snippet} {location}".lower()
+    def __init__(self, profile: Optional[Dict[str, Any]] = None):
+        prof = profile or ACTIVE_PROFILE
+        self.target_roles = [r.lower() for r in prof.get("target_roles", [])]
+        self.skills = [s.lower() for s in prof.get("skills", [])]
+        self.contract_types = [c.lower() for c in prof.get("contract_types", [])]
+        self.negative_keywords = [n.lower() for n in prof.get("negative_keywords", [])]
+        self.negative_title_keywords = [nt.lower() for nt in prof.get("negative_title_keywords", [])]
+        self.locations = [l.lower() for l in prof.get("locations", [])]
 
-    # 1. Strict Title Seniority & Non-Tech Role Blockers
-    TITLE_BLOCKERS = [
-        "senior", "sr.", "sr ", "lead", "tech lead", "principal", "staff",
-        "director", "head of", "vp", "manager", "architect",
-        "design", "designer", "visual", "brand", "graphic", "ui/ux",
-        "sales", "marketing", "recruiting", "talent", "hr", "human resources",
-        "copywriter", "content writer", "account executive", "commercial",
-        "operations manager", "social media", "e-commerce", "customer support"
-    ]
-    for blocker in TITLE_BLOCKERS:
-        if blocker in lower_title:
+    def score(self, title: str, snippet: str, location: str = "", url: str = "") -> int:
+        if not is_valid_job_url(url):
             return -10
 
-    # 2. General Profile Negative Filter
-    for neg in NEGATIVE_KEYWORDS:
-        if neg in lower_title:
-            return -10
-        # If strict requirement (e.g. years of experience or language) appears in text
-        if any(x in neg for x in ["year", "deutsch", "german"]):
-            if neg in text:
+        lower_title = title.lower()
+        text = f"{title} {snippet} {location}".lower()
+
+        # 1. Profile Title-Only Exclusions (Disqualify if keyword appears in job title)
+        for blocker in self.negative_title_keywords:
+            if blocker in lower_title:
                 return -10
 
-    score = 0
-    # 3. Technical relevance: must match a real technical discipline/skill
-    # Avoid treating generic contract types like 'working student' as a tech hit by itself
-    CONTRACT_TYPES = {"working student", "werkstudent", "intern", "internship", "junior", "associate", "graduate"}
+        # 2. Profile General Negative Exclusions (Disqualify if in title or text)
+        for neg in self.negative_keywords:
+            if neg in lower_title or neg in text:
+                return -10
 
-    tech_hit = False
-    for pos in POSITIVE_KEYWORDS:
-        if pos in CONTRACT_TYPES:
-            continue
+        score = 0
 
-        if pos in lower_title:
-            tech_hit = True
-            score += 3  # High boost for technical discipline in the title
-        elif pos in text:
-            tech_hit = True
-            score += 1
+        # 3. Target Role & Skill Matching from Profile
+        matched_role = False
+        for role in self.target_roles:
+            if role in lower_title:
+                matched_role = True
+                score += 3  # Higher boost for matching target title directly
+                break
+            elif role in text:
+                matched_role = True
+                score += 1
+                break
 
-    if not tech_hit:
-        return 0
+        matched_skill = False
+        for skill in self.skills:
+            if skill in lower_title:
+                matched_skill = True
+                score += 2
+            elif skill in text:
+                matched_skill = True
+                score += 1
 
-    # 4. Contract type boost (e.g. Werkstudent, Junior)
-    if any(ct in lower_title for ct in CONTRACT_TYPES):
-        score += 2
+        # Must match at least one target role or skill to be considered relevant
+        if not (matched_role or matched_skill):
+            return 0
 
-    # 5. Location boost
-    for loc in LOCATION_BOOSTS:
-        if loc in text:
+        # 4. Preferred Contract / Seniority Types Boost (from profile)
+        if self.contract_types and any(ct in lower_title for ct in self.contract_types):
             score += 2
-            break
 
-    return score
+        # 5. Preferred Locations Boost (from profile)
+        if self.locations and any(loc in text for loc in self.locations):
+            score += 2
+
+        return score
+
+DEFAULT_SCORER = ProfileScorer(ACTIVE_PROFILE)
+
+def score_job(
+    title: str,
+    snippet: str,
+    location: str = "",
+    url: str = "",
+    scorer: Optional[ProfileScorer] = None
+) -> int:
+    active_scorer = scorer or DEFAULT_SCORER
+    return active_scorer.score(title, snippet, location, url)
 
 def extract_company_from_title(title: str, url: str) -> str:
     # Common formats: "Role at Company", "Company - Role", "Role | Company"
@@ -254,17 +269,22 @@ def run_scout(
     categories: List[str],
     timelimit: str = "w",
     push_to_notion: bool = False,
-    include_apis: bool = True
+    include_apis: bool = True,
+    profile_data: Optional[Dict[str, Any]] = None,
+    queries_dict: Optional[Dict[str, List[str]]] = None
 ):
     print(f"\n🚀 Running Job Scout for categories: {', '.join(categories)}")
     print(f"⏱️  Time filter: {'Past 24 hours' if timelimit == 'd' else 'Past week'}")
+
+    scorer = ProfileScorer(profile_data)
+    active_queries = queries_dict or SEARCH_QUERIES
 
     seen_urls = load_seen_jobs()
     discovered_jobs: List[Dict[str, Any]] = []
 
     # 1. Search Dorks
     for cat in categories:
-        queries = SEARCH_QUERIES.get(cat, [])
+        queries = active_queries.get(cat, [])
         for q in queries:
             print(f"🔎 Scanning: {q[:70]}...")
             raw_results = search_duckduckgo(q, timelimit=timelimit)
@@ -273,7 +293,7 @@ def run_scout(
                 if url in seen_urls:
                     continue
 
-                score = score_job(r["role"], r["snippet"], r["location"], url=url)
+                score = score_job(r["role"], r["snippet"], r["location"], url=url, scorer=scorer)
                 if score >= 1:
                     r["score"] = score
                     r["category"] = cat
@@ -289,7 +309,7 @@ def run_scout(
             if url in seen_urls:
                 continue
 
-            score = score_job(r["role"], r["snippet"], r["location"], url=url)
+            score = score_job(r["role"], r["snippet"], r["location"], url=url, scorer=scorer)
             if score >= 1:
                 r["score"] = score
                 r["category"] = "api_feed"
@@ -361,9 +381,10 @@ def main():
 
     if args.profile:
         from config import load_profile, generate_search_dorks
-        custom_prof = load_profile(args.profile)
-        queries = generate_search_dorks(custom_prof)
+        profile_data = load_profile(args.profile)
+        queries = generate_search_dorks(profile_data)
     else:
+        profile_data = ACTIVE_PROFILE
         queries = SEARCH_QUERIES
 
     if args.category == "all":
@@ -375,7 +396,9 @@ def main():
         categories=categories,
         timelimit=timelimit,
         push_to_notion=args.push_notion,
-        include_apis=not args.no_apis
+        include_apis=not args.no_apis,
+        profile_data=profile_data,
+        queries_dict=queries
     )
 
 if __name__ == "__main__":
