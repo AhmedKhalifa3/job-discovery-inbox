@@ -298,10 +298,14 @@ def run_scout(
 def main():
     parser = argparse.ArgumentParser(description="Autonomous Job Discovery Scout")
     parser.add_argument(
+        "--profile",
+        default=None,
+        help="Path to custom candidate profile YAML/JSON file (default: profile.yaml or profile.example.yaml)"
+    )
+    parser.add_argument(
         "--category",
-        choices=["all", "werkstudent", "ai_agents", "sdet_qa", "backend"],
         default="all",
-        help="Category of roles to scout"
+        help="Category of roles to scout (default: all)"
     )
     parser.add_argument(
         "--fresh",
@@ -323,8 +327,15 @@ def main():
     args = parser.parse_args()
     timelimit = "d" if args.fresh == "24h" else "w"
 
+    if args.profile:
+        from config import load_profile, generate_search_dorks
+        custom_prof = load_profile(args.profile)
+        queries = generate_search_dorks(custom_prof)
+    else:
+        queries = SEARCH_QUERIES
+
     if args.category == "all":
-        categories = ["werkstudent", "ai_agents", "sdet_qa", "backend"]
+        categories = list(queries.keys())
     else:
         categories = [args.category]
 

@@ -1,39 +1,143 @@
-"""Configuration and search queries tailored for Ahmed Khalifa's profile.
+"""Generic configuration and profile loader for Job Scout.
 
-Profile:
-- Enrolled in M.Sc. AI at FAU Erlangen-Nürnberg.
-- Eligible for Werkstudent / Working Student contracts in Germany.
-- Full work rights in Germany, Hungary (Budapest), and Egypt (Cairo).
-- Tech stack: Python, FastAPI, Pytest, Selenium, Appium, C++, LLMs/Agents, FastMCP, Docker.
+Loads candidate criteria from 'profile.yaml' (or 'profile.json'),
+generates precision ATS search dorks, and configures ranking weights.
 """
 
+import os
+import json
 from typing import Dict, List, Any
 
-# Targeted Search Dorks by Category
-SEARCH_QUERIES: Dict[str, List[str]] = {
-    "werkstudent": [
-        'site:jobs.personio.de ("Werkstudent" OR "Working Student") ("Python" OR "Software" OR "AI") ("Nürnberg" OR "Erlangen" OR "Remote")',
-        'site:jobs.personio.de ("Werkstudent" OR "Working Student") ("Test" OR "Automation" OR "QA") ("Nürnberg" OR "Erlangen" OR "Remote")',
-        'site:jobs.personio.de ("Working Student" OR "Werkstudent") ("Backend" OR "Machine Learning") "English"',
-        '(site:boards.greenhouse.io OR site:jobs.lever.co) "Working Student" "Python" ("Germany" OR "Remote")',
+# Try importing yaml
+try:
+    import yaml
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DEFAULT_PROFILE = {
+    "target_roles": ["Software Engineer", "Backend Engineer", "AI Engineer"],
+    "skills": ["Python", "FastAPI", "Docker", "PostgreSQL", "REST API"],
+    "locations": ["Remote", "Europe", "Germany", "United States"],
+    "negative_keywords": [
+        "staff", "principal", "director", "head of", "vp",
+        "8+ years", "10+ years", "sales", "marketing", "recruiting", "hr"
     ],
-    "ai_agents": [
-        'site:jobs.ashbyhq.com ("AI Engineer" OR "Python Developer" OR "Agent" OR "Automation") ("Remote" OR "Europe" OR "Germany" OR "EMEA")',
-        'site:boards.greenhouse.io ("AI Engineer" OR "Python Developer") ("FastAPI" OR "LLM" OR "Agents") ("Remote" OR "Europe" OR "Germany")',
-        'site:jobs.lever.co ("AI Engineer" OR "Machine Learning") ("Python" OR "FastAPI") ("Remote" OR "Europe" OR "Germany")',
-        'site:notion.site ("we are hiring" OR "open roles") ("AI Agent" OR "Python Developer") ("Remote" OR "Europe")',
-    ],
-    "sdet_qa": [
-        '(site:boards.greenhouse.io OR site:jobs.lever.co OR site:jobs.ashbyhq.com) ("SDET" OR "QA Automation" OR "Test Automation Engineer") "Python" ("Remote" OR "Germany" OR "Europe")',
-        'site:jobs.personio.de ("QA" OR "Test Automation" OR "SDET") "Python" ("Remote" OR "Nürnberg" OR "München" OR "Germany")',
-        '(site:boards.greenhouse.io OR site:jobs.lever.co) ("Automation Engineer" OR "QA Engineer") ("Selenium" OR "Pytest" OR "Appium") ("Remote" OR "Germany")',
-    ],
-    "backend": [
-        '(site:boards.greenhouse.io OR site:jobs.lever.co) ("Junior" OR "Associate" OR "Software Engineer") "Python" "FastAPI" ("Remote" OR "Germany" OR "Budapest" OR "Cairo")',
-        'site:jobs.personio.de ("Junior" OR "Software Engineer") "Python" ("Remote" OR "Nürnberg" OR "Erlangen" OR "München")',
-        'site:jobs.ashbyhq.com "Backend Engineer" "Python" ("Remote" OR "Europe" OR "Germany")',
-    ]
+    "ats_platforms": ["greenhouse", "lever", "ashby", "personio", "workday"],
+    "include_api_feeds": True,
+    "custom_queries": []
 }
+
+def load_profile(custom_path: str = None) -> Dict[str, Any]:
+    """Loads profile from profile.yaml or profile.json, falling back to defaults."""
+    paths_to_try = [custom_path] if custom_path else [
+        os.path.join(BASE_DIR, "profile.yaml"),
+        os.path.join(BASE_DIR, "profile.json"),
+        os.path.join(BASE_DIR, "profile.example.yaml"),
+    ]
+
+    for path in paths_to_try:
+        if path and os.path.exists(path):
+            try:
+                if path.endswith((".yaml", ".yml")) and HAS_YAML:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f)
+                        if isinstance(data, dict):
+                            return {**DEFAULT_PROFILE, **data}
+                elif path.endswith(".json"):
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            return {**DEFAULT_PROFILE, **data}
+            except Exception as e:
+                print(f"[Warning] Error loading profile from {path}: {e}")
+
+    return DEFAULT_PROFILE
+
+# Load active profile
+ACTIVE_PROFILE = load_profile()
+
+# Supported ATS platform site prefixes
+ATS_SITE_MAP = {
+    "greenhouse": "site:boards.greenhouse.io",
+    "lever": "site:jobs.lever.co",
+    "ashby": "site:jobs.ashbyhq.com",
+    "personio": "site:jobs.personio.de",
+    "workday": "site:myworkdayjobs.com",
+    "smartrecruiters": "site:jobs.smartrecruiters.com"
+}
+
+def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
+    """Generates precision ATS search dorks based on candidate profile."""
+    roles = profile.get("target_roles", [])
+    skills = profile.get("skills", [])
+    locations = profile.get("locations", [])
+    platforms = profile.get("ats_platforms", [])
+    custom_queries = profile.get("custom_queries", [])
+
+    queries_by_category: Dict[str, List[str]] = {
+        "all_roles": []
+    }
+
+    # Format role string
+    roles_formatted = " OR ".join(f'"{r}"' for r in roles[:6])
+    roles_str = f"({roles_formatted})" if roles else '"Software Engineer"'
+
+    # Format locations string
+    loc_formatted = " OR ".join(f'"{loc}"' for loc in locations[:5])
+    loc_str = f"({loc_formatted})" if locations else '"Remote"'
+
+    # 1. Generate per-platform dorks
+    for plat in platforms:
+        site_dork = ATS_SITE_MAP.get(plat.lower())
+        if not site_dork:
+            continue
+
+        # Split skills into batches for query length limits
+        for i in range(0, min(len(skills), 6), 3):
+            skill_batch = skills[i:i+3]
+            skill_formatted = " OR ".join(f'"{s}"' for s in skill_batch)
+            skill_str = f"({skill_formatted})" if skill_formatted else ""
+
+            query = f'{site_dork} {roles_str}'
+            if skill_str:
+                query += f' {skill_str}'
+            if loc_str:
+                query += f' {loc_str}'
+
+            queries_by_category["all_roles"].append(query)
+
+    # 2. Add Notion and open calls dork
+    queries_by_category["all_roles"].append(
+        f'site:notion.site ("we are hiring" OR "open roles") {roles_str} {loc_str}'
+    )
+
+    # 3. Add custom queries if any
+    if custom_queries:
+        queries_by_category["all_roles"].extend(custom_queries)
+
+    return queries_by_category
+
+# Exported search queries
+SEARCH_QUERIES = generate_search_dorks(ACTIVE_PROFILE)
+
+# Keyword Scoring Lists
+POSITIVE_KEYWORDS = list(set([
+    item.lower() for item in (
+        ACTIVE_PROFILE.get("target_roles", []) +
+        ACTIVE_PROFILE.get("skills", [])
+    )
+]))
+
+NEGATIVE_KEYWORDS = [
+    item.lower() for item in ACTIVE_PROFILE.get("negative_keywords", [])
+]
+
+LOCATION_BOOSTS = [
+    item.lower() for item in ACTIVE_PROFILE.get("locations", [])
+]
 
 # Free Developer Job APIs for direct structured ingestion
 API_SOURCES: List[Dict[str, Any]] = [
@@ -49,34 +153,8 @@ API_SOURCES: List[Dict[str, Any]] = [
     }
 ]
 
-# Keywords for scoring candidate match
-POSITIVE_KEYWORDS = [
-    "python", "fastapi", "flask", "selenium", "pytest", "appium",
-    "automation", "agent", "agents", "llm", "mcp", "fastmcp", "c++",
-    "docker", "ci/cd", "rest api", "werkstudent", "working student",
-    "junior", "associate", "test automation", "sdet", "cef", "audio", "nlp"
-]
-
-NEGATIVE_KEYWORDS = [
-    # Senior / Overqualified filters
-    "staff", "principal", "director", "head of", "vp",
-    "8+ years", "10+ years", "7+ years",
-    # German language blockers
-    "c1 german required", "verhandlungssicher deutsch", "fließende deutschkenntnisse zwingend",
-    # Non-engineering / irrelevant domains
-    "sales", "recruiting", "marketing", "account executive", "commercial",
-    "social media", "e-commerce", "crm", "content management", "pr & communications",
-    "human resources", "bauingenieur", "konstruktiver ingenieurbau", "art editions",
-    "customer support", "customer success"
-]
-
 DOMAIN_BLACKLIST = [
     "wikipedia.org", "studis-online.de", "karrierebibel.de", "haufe.de",
     "aok.de", "tk.de", "studierenplus.de", "arbeitsagentur.de", "stepstone.de",
     "indeed.com", "glassdoor.com", "kununu.com"
-]
-
-LOCATION_BOOSTS = [
-    "nürnberg", "nuremberg", "erlangen", "bayern", "bavaria", "munich", "münchen",
-    "remote germany", "remote", "europe", "emea", "budapest", "hungary", "cairo", "egypt"
 ]

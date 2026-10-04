@@ -1,0 +1,55 @@
+# ==============================================================================
+# Job Scout: Candidate Search Profile (Example Template)
+# Copy this file to 'profile.yaml' and customize with your own targets.
+# ==============================================================================
+
+# Target Job Roles (Roles you are hunting for)
+target_roles:
+  - "Software Engineer"
+  - "Backend Engineer"
+  - "Full Stack Developer"
+  - "AI Engineer"
+
+# Core Skills & Tech Stack (Matches will boost ranking score)
+skills:
+  - "Python"
+  - "FastAPI"
+  - "Docker"
+  - "PostgreSQL"
+  - "REST API"
+
+# Desired Locations & Work Styles
+locations:
+  - "Remote"
+  - "Europe"
+  - "Germany"
+  - "United States"
+
+# Exclusion Keywords (Immediate disqualification filter)
+negative_keywords:
+  - "staff"
+  - "principal"
+  - "director"
+  - "head of"
+  - "vp"
+  - "8+ years"
+  - "10+ years"
+  - "sales"
+  - "marketing"
+  - "recruiting"
+  - "hr"
+
+# ATS Platforms to Hunt On
+# Supported: greenhouse, lever, ashby, personio, workday, smartrecruiters
+ats_platforms:
+  - "greenhouse"
+  - "lever"
+  - "ashby"
+  - "personio"
+  - "workday"
+
+# Direct Job APIs to Include (e.g. Arbeitnow, Jobicy)
+include_api_feeds: true
+
+# Optional: Add any manual Google / DuckDuckGo search dorks directly
+custom_queries: []

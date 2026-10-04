@@ -1,6 +1,7 @@
 # Environment & Credentials
 .env
 *.env
+profile.yaml
 .venv/
 venv/
 ENV/
