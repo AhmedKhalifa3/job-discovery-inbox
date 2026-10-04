@@ -30,6 +30,14 @@ locations:
   - "Germany"
   - "United States"
 
+# Target Companies & Career Websites to Track Specially (Optional)
+# Accepts career site domains (e.g. 'jobs.siemens.com', 'bmwgroup.jobs') or company names (e.g. 'Siemens', 'Celonis')
+# Postings from these sites will be scraped directly and awarded a +3 priority score boost.
+target_companies:
+  - "jobs.siemens.com"
+  - "bmwgroup.jobs"
+  - "careers.fraunhofer.de"
+
 # Exclusion Keywords (Immediate disqualification filter across title & description)
 negative_keywords:
   - "staff"

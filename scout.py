@@ -46,7 +46,7 @@ def save_seen_jobs(seen_urls: set):
     with open(SEEN_JOBS_FILE, "w", encoding="utf-8") as f:
         json.dump(list(seen_urls), f, indent=2)
 
-def is_valid_job_url(url: str, is_dork: bool = False) -> bool:
+def is_valid_job_url(url: str, is_dork: bool = False, custom_domains: Optional[List[str]] = None) -> bool:
     if not url:
         return False
     lower_url = url.lower()
@@ -60,7 +60,8 @@ def is_valid_job_url(url: str, is_dork: bool = False) -> bool:
         from urllib.parse import urlparse
         host = urlparse(url).netloc.lower()
         path = urlparse(url).path.lower().strip('/')
-        if not any(d in host for d in ATS_DOMAINS):
+        allowed_domains = ATS_DOMAINS + [d.lower() for d in (custom_domains or [])]
+        if not any(d in host for d in allowed_domains):
             return False
         if not path or path in ('careers', 'jobs', 'about', 'search'):
             return False
@@ -78,9 +79,22 @@ class ProfileScorer:
         self.negative_keywords = [n.lower() for n in prof.get("negative_keywords", [])]
         self.negative_title_keywords = [nt.lower() for nt in prof.get("negative_title_keywords", [])]
         self.locations = [l.lower() for l in prof.get("locations", [])]
+        self.target_companies = prof.get("target_companies", [])
+        self.target_company_domains = []
+        self.target_company_names = []
+        for comp in self.target_companies:
+            c_str = str(comp).strip().lower()
+            if not c_str:
+                continue
+            if "." in c_str:
+                from urllib.parse import urlparse
+                domain = urlparse(c_str if "://" in c_str else f"https://{c_str}").netloc or c_str
+                self.target_company_domains.append(domain.replace("www.", ""))
+            else:
+                self.target_company_names.append(c_str)
 
     def score(self, title: str, snippet: str, location: str = "", url: str = "", is_dork: bool = False) -> int:
-        if not is_valid_job_url(url, is_dork=is_dork):
+        if not is_valid_job_url(url, is_dork=is_dork, custom_domains=self.target_company_domains):
             return -10
 
         lower_title = title.lower()
@@ -130,6 +144,22 @@ class ProfileScorer:
         # 5. Preferred Locations Boost (from profile)
         if self.locations and any(loc in text for loc in self.locations):
             score += 2
+
+        # 6. Target Company Priority Boost (from profile)
+        is_target_company = False
+        lower_url = url.lower()
+        for c_dom in self.target_company_domains:
+            if c_dom in lower_url:
+                is_target_company = True
+                break
+        if not is_target_company:
+            for c_name in self.target_company_names:
+                if c_name in lower_title or c_name in text:
+                    is_target_company = True
+                    break
+
+        if is_target_company:
+            score += 3  # High boost for designated target companies!
 
         return score
 
@@ -256,6 +286,34 @@ def fetch_jobicy_jobs() -> List[Dict[str, Any]]:
         print(f"[Warning] Failed to fetch Jobicy: {e}")
     return jobs
 
+def fetch_remotive_jobs() -> List[Dict[str, Any]]:
+    """Fetches remote software development jobs from Remotive."""
+    jobs = []
+    try:
+        import requests
+        url = "https://remotive.com/api/remote-jobs?category=software-dev&limit=40"
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            data = res.json().get("jobs", [])
+            for item in data:
+                title = item.get("title", "")
+                company = item.get("company_name", "Unknown")
+                url = item.get("url", "")
+                description = item.get("description", "")
+                loc = item.get("candidate_required_location", "Remote")
+                snippet = f"{description[:300]} Location: {loc}"
+                jobs.append({
+                    "company": company,
+                    "role": title,
+                    "url": url,
+                    "snippet": snippet,
+                    "location": loc,
+                    "source": "Remotive API"
+                })
+    except Exception as e:
+        print(f"[Warning] Failed to fetch Remotive: {e}")
+    return jobs
+
 def generate_markdown_report(jobs: List[Dict[str, Any]]) -> str:
     lines = [
         f"# 🎯 Discovered Job Opportunities ({datetime.now().strftime('%Y-%m-%d %H:%M')})",
@@ -317,7 +375,7 @@ def run_scout(
     # 2. Free Job APIs (Arbeitnow & Jobicy)
     if include_apis:
         print("\n🌐 Querying direct tech job feeds (Germany & Remote Europe)...")
-        api_jobs = fetch_arbeitnow_jobs() + fetch_jobicy_jobs()
+        api_jobs = fetch_arbeitnow_jobs() + fetch_jobicy_jobs() + fetch_remotive_jobs()
         for r in api_jobs:
             url = r.get("url", "")
             if url in seen_urls:

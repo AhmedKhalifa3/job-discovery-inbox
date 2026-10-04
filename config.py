@@ -22,6 +22,7 @@ DEFAULT_PROFILE = {
     "skills": ["Python", "FastAPI", "Docker", "PostgreSQL", "REST API"],
     "contract_types": ["Junior", "Associate", "Working Student"],
     "locations": ["Remote", "Europe", "Germany", "United States"],
+    "target_companies": [],
     "negative_keywords": [
         "staff", "principal", "director", "head of", "vp",
         "8+ years", "10+ years", "sales", "marketing", "recruiting", "hr"
@@ -29,7 +30,7 @@ DEFAULT_PROFILE = {
     "negative_title_keywords": [
         "senior", "sr.", "lead", "manager", "architect"
     ],
-    "ats_platforms": ["greenhouse", "lever", "ashby", "personio", "workday"],
+    "ats_platforms": ["greenhouse", "lever", "ashby", "personio", "workday", "smartrecruiters"],
     "include_api_feeds": True,
     "custom_queries": []
 }
@@ -98,11 +99,30 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
             if roles:
                 queries_by_category["all_roles"].append(f'{site_dork} {ct} {roles[0]}')
 
-    # 2. Add Notion open roles dork
+    # 2. Add Target Companies career searches
+    target_companies = profile.get("target_companies", [])
+    for comp in target_companies:
+        comp_str = str(comp).strip()
+        if not comp_str:
+            continue
+        if "." in comp_str:
+            from urllib.parse import urlparse
+            parsed_domain = urlparse(comp_str if "://" in comp_str else f"https://{comp_str}").netloc or comp_str
+            for role in roles[:2]:
+                queries_by_category["all_roles"].append(f"{parsed_domain} {role}")
+            for ct in contract_types[:2]:
+                queries_by_category["all_roles"].append(f"{parsed_domain} {ct}")
+        else:
+            for role in roles[:2]:
+                queries_by_category["all_roles"].append(f'"{comp_str}" careers {role}')
+            for ct in contract_types[:1]:
+                queries_by_category["all_roles"].append(f'"{comp_str}" careers {ct}')
+
+    # 3. Add Notion open roles dork
     if roles:
         queries_by_category["all_roles"].append(f'notion.site "we are hiring" {roles[0]}')
 
-    # 3. Add custom queries if any
+    # 4. Add custom queries if any
     if custom_queries:
         queries_by_category["all_roles"].extend(custom_queries)
 
@@ -132,6 +152,11 @@ API_SOURCES: List[Dict[str, Any]] = [
         "name": "Jobicy (Remote Engineering Europe/Global)",
         "url": "https://jobicy.com/api/v2/remote-jobs?count=50&industry=engineering",
         "type": "jobicy"
+    },
+    {
+        "name": "Remotive (Software Development)",
+        "url": "https://remotive.com/api/remote-jobs?category=software-dev&limit=50",
+        "type": "remotive"
     }
 ]
 
