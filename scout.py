@@ -118,7 +118,10 @@ def search_duckduckgo(query: str, timelimit: str = "w", max_results: int = 15) -
     """Runs dork query using duckduckgo_search."""
     jobs = []
     try:
-        from duckduckgo_search import DDGS
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
         with DDGS() as ddgs:
             results = ddgs.text(query, timelimit=timelimit, max_results=max_results)
             for r in results:
