@@ -89,7 +89,15 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
 
     # 1. Generate clean per-platform dorks for top roles
     for plat in platforms:
-        site_dork = ATS_SITE_MAP.get(plat.lower())
+        plat_lower = plat.lower()
+        if plat_lower in ("twitter", "x"):
+            for role in roles[:2]:
+                queries_by_category["all_roles"].append(f'site:x.com "hiring" "{role}"')
+            if contract_types and roles:
+                queries_by_category["all_roles"].append(f'site:x.com "hiring" "{contract_types[0]}" "{roles[0]}"')
+            continue
+
+        site_dork = ATS_SITE_MAP.get(plat_lower)
         if not site_dork:
             continue
 
@@ -191,7 +199,7 @@ API_SOURCES: List[Dict[str, Any]] = [
 ATS_DOMAINS = [
     "greenhouse.io", "lever.co", "ashbyhq.com", "personio.de",
     "personio.com", "myworkdayjobs.com", "smartrecruiters.com", "notion.site",
-    "welcometothejungle.com"
+    "welcometothejungle.com", "x.com", "twitter.com"
 ]
 
 DOMAIN_BLACKLIST = [
@@ -199,5 +207,5 @@ DOMAIN_BLACKLIST = [
     "aok.de", "tk.de", "studierenplus.de", "arbeitsagentur.de", "stepstone.de",
     "indeed.com", "glassdoor.com", "kununu.com",
     "bing.com", "duckduckgo.com", "googleadservices.com", "doubleclick.net",
-    "linkedin.com", "x.com", "twitter.com", "github.com", "reddit.com", "youtube.com"
+    "linkedin.com", "github.com", "reddit.com", "youtube.com"
 ]

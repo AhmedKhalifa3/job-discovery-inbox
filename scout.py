@@ -66,6 +66,12 @@ def is_valid_job_url(url: str, is_dork: bool = False, custom_domains: Optional[L
             return False
         if not path or path in ('careers', 'jobs', 'about', 'search'):
             return False
+        if any(xd in host for xd in ('x.com', 'twitter.com')):
+            if not any(marker in lower_url for marker in ('/status/', '/jobs/', '/article/')):
+                return False
+            parts = [p for p in path.split('/') if p]
+            if parts and parts[0] in ('home', 'explore', 'login', 'notifications', 'search', 'settings', 'hashtag'):
+                return False
 
     return True
 
@@ -282,9 +288,10 @@ class ProfileScorer:
         search_body = full_text if full_text else snippet
         text = f"{title} {search_body} {location}".lower()
 
-        # 0. Enforce Candidate Target Disciplines in Title
+        # 0. Enforce Candidate Target Disciplines in Title (or snippet/text for search dorks)
         if self.target_title_tokens and not any(token in lower_title for token in self.target_title_tokens):
-            return 0  # Disqualified: Title does not match candidate's target disciplines
+            if not any(token in search_body.lower() for token in self.target_title_tokens):
+                return 0  # Disqualified: Title/snippet does not match candidate's target disciplines
 
         # 1. Excluded Language Requirements Blocker
         if self.language_regex and self.language_regex.search(text):
@@ -372,6 +379,32 @@ def score_job(
     return active_scorer.score(title, snippet, location, url, is_dork=is_dork, full_text=full_text)
 
 def extract_company_from_title(title: str, url: str) -> str:
+    lower_url = url.lower()
+    if "x.com" in lower_url or "twitter.com" in lower_url:
+        # Check for author: "Author on X: ..." or "Author on Twitter: ..."
+        x_author_match = re.search(r'^(?:["\'“\s])*(.+?)\s+on\s+(?:X|Twitter):', title, flags=re.IGNORECASE)
+        author = ""
+        if x_author_match:
+            raw_author = x_author_match.group(1).strip()
+            author = re.sub(r'\s*\(@[^\)]+\)', '', raw_author).strip().strip('"\'“”')
+
+        # Check if there is an explicit "at <Company>" mentioned
+        at_match = re.search(r'\bat\s+([A-Z0-9][A-Za-z0-9&_\.\s\-]{1,25})(?:[.,\n\r"\'!?:;/]|$)', title)
+        if at_match and at_match.group(1).lower() not in ('x', 'twitter'):
+            comp = at_match.group(1).strip()
+            if author and author.lower() != comp.lower():
+                return f"{comp} (via {author})"
+            return comp
+
+        if author:
+            return author
+
+        # Fallback to handle from URL: x.com/<handle>/status/...
+        handle_match = re.search(r'https?://(?:www\.)?(?:x|twitter)\.com/([^/]+)/status', url, flags=re.IGNORECASE)
+        if handle_match and handle_match.group(1).lower() not in ('i', 'jobs'):
+            return f"@{handle_match.group(1)}"
+        return "X / Twitter"
+
     # Common formats: "Role at Company", "Company - Role", "Role | Company"
     if " at " in title:
         parts = title.split(" at ")
@@ -393,8 +426,17 @@ def extract_company_from_title(title: str, url: str) -> str:
     return "Company"
 
 def clean_role_title(title: str) -> str:
-    # Strip trailing website names like " | Greenhouse", " - Lever", " | Welcome to the Jungle"
-    cleaned = re.sub(r"\s*(\||-|–)\s*(Greenhouse|Lever|Ashby|Personio|Jobs|Careers|Welcome to the Jungle|WTTJ).*$", "", title, flags=re.IGNORECASE)
+    # Strip trailing website names like " | Greenhouse", " - Lever", " | Welcome to the Jungle", " / X", " | Twitter"
+    cleaned = re.sub(
+        r"\s*(\||-|–|/)\s*(Greenhouse|Lever|Ashby|Personio|Jobs|Careers|Welcome to the Jungle|WTTJ|X|Twitter).*$",
+        "",
+        title,
+        flags=re.IGNORECASE
+    )
+    # Strip leading Twitter author prefix: e.g. "Author on X: " or "Author on Twitter: "
+    cleaned = re.sub(r'^.*?on\s+(?:X|Twitter):\s*["\'“]?', '', cleaned, flags=re.IGNORECASE)
+    # Strip wrapping or dangling quotation marks
+    cleaned = cleaned.strip().strip('"\'“”')
     return cleaned.strip()
 
 def search_duckduckgo(query: str, timelimit: str = "w", max_results: int = 15) -> List[Dict[str, Any]]:
