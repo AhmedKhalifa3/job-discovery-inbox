@@ -671,21 +671,21 @@ class ProfileScorer:
         # 4. Target Role & Skill Matching from Profile
         matched_role = False
         for role in self.target_roles:
-            if role in lower_title:
+            if re.search(rf"\b{re.escape(role)}\b", lower_title):
                 matched_role = True
                 score += 3  # Higher boost for matching target title directly
                 break
-            elif role in text:
+            elif re.search(rf"\b{re.escape(role)}\b", text):
                 matched_role = True
                 score += 1
                 break
 
         matched_skill = False
         for skill in self.skills:
-            if skill in lower_title:
+            if re.search(rf"\b{re.escape(skill)}\b", lower_title):
                 matched_skill = True
                 score += 2
-            elif skill in text:
+            elif re.search(rf"\b{re.escape(skill)}\b", text):
                 matched_skill = True
                 score += 1
 
