@@ -72,7 +72,7 @@ ATS_SITE_MAP = {
     "greenhouse": "boards.greenhouse.io",
     "lever": "jobs.lever.co",
     "ashby": "jobs.ashbyhq.com",
-    "personio": "jobs.personio.de",
+    "personio": "personio.de/job",
     "workday": "myworkdayjobs.com",
     "smartrecruiters": "jobs.smartrecruiters.com",
     "wttj": "welcometothejungle.com/en/jobs",
@@ -106,12 +106,12 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
         if plat_lower == "stellenwerk":
             # Targeted German university job portal dorks (prioritizing Erlangen-Nürnberg & Bavaria)
             primary_role = roles[0] if roles else "Software Engineer"
-            queries_by_category["all_roles"].append(f'stellenwerk.de/erlangen-nuernberg "{primary_role}"')
+            queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{primary_role}"')
             if len(roles) > 1:
-                queries_by_category["all_roles"].append(f'stellenwerk.de/erlangen-nuernberg "{roles[1]}"')
+                queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{roles[1]}"')
             if contract_types:
-                queries_by_category["all_roles"].append(f'stellenwerk.de/erlangen-nuernberg "{contract_types[0]}"')
-                queries_by_category["all_roles"].append(f'stellenwerk.de/erlangen-nuernberg "{contract_types[0]}" "{primary_role}"')
+                queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{contract_types[0]}"')
+                queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{contract_types[0]}" "{primary_role}"')
             continue
 
         site_dork = ATS_SITE_MAP.get(plat_lower)
@@ -122,13 +122,14 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
         if not site_dork:
             continue
 
+        site_prefix = f"site:{site_dork}" if not site_dork.startswith("site:") else site_dork
         for role in roles[:3]:
-            queries_by_category["all_roles"].append(f'{site_dork} {role}')
+            queries_by_category["all_roles"].append(f'{site_prefix} "{role}"')
 
         # Pair top contract types with primary target role
         for ct in contract_types[:2]:
             if roles:
-                queries_by_category["all_roles"].append(f'{site_dork} {ct} {roles[0]}')
+                queries_by_category["all_roles"].append(f'{site_prefix} "{ct}" "{roles[0]}"')
 
     # 2. Add City-Targeted searches for key German tech hubs (Personio, Ashby)
     locations = profile.get("locations", [])
@@ -152,9 +153,9 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
 
         primary_role = roles[0] if roles else "Software Engineer"
         for city in target_cities[:5]:
-            queries_by_category["all_roles"].append(f'jobs.personio.de {primary_role} {city}')
+            queries_by_category["all_roles"].append(f'site:personio.de/job "{primary_role}" {city}')
             if contract_types:
-                queries_by_category["all_roles"].append(f'jobs.personio.de {contract_types[0]} {city}')
+                queries_by_category["all_roles"].append(f'site:personio.de/job "{contract_types[0]}" {city}')
 
     # 3. Add Target Companies career searches
     target_companies = profile.get("target_companies", [])
@@ -166,18 +167,18 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
             from urllib.parse import urlparse
             parsed_domain = urlparse(comp_str if "://" in comp_str else f"https://{comp_str}").netloc or comp_str
             if roles:
-                queries_by_category["all_roles"].append(f"{parsed_domain} {roles[0]}")
+                queries_by_category["all_roles"].append(f'site:{parsed_domain} "{roles[0]}"')
             if contract_types:
-                queries_by_category["all_roles"].append(f"{parsed_domain} {contract_types[0]}")
+                queries_by_category["all_roles"].append(f'site:{parsed_domain} "{contract_types[0]}"')
         else:
             if roles:
-                queries_by_category["all_roles"].append(f'"{comp_str}" careers {roles[0]}')
+                queries_by_category["all_roles"].append(f'"{comp_str}" careers "{roles[0]}"')
             if contract_types:
-                queries_by_category["all_roles"].append(f'"{comp_str}" careers {contract_types[0]}')
+                queries_by_category["all_roles"].append(f'"{comp_str}" careers "{contract_types[0]}"')
 
     # 3. Add Notion open roles dork
     if roles:
-        queries_by_category["all_roles"].append(f'notion.site "we are hiring" {roles[0]}')
+        queries_by_category["all_roles"].append(f'site:notion.site "we are hiring" "{roles[0]}"')
 
     # 4. Add custom queries if any
     if custom_queries:

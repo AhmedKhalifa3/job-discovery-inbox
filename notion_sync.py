@@ -6,6 +6,9 @@ import time
 import requests
 from datetime import datetime
 from typing import Dict, Any, Optional
+from dotenv import load_dotenv
+
+load_dotenv()
 
 NOTION_VERSION = "2022-06-28"
 
@@ -89,6 +92,38 @@ class NotionJobSyncer:
         except Exception:
             pass
         return False
+
+    def get_all_job_urls(self) -> set:
+        """Fetches all URLs currently logged in the Notion database to keep seen cache perfectly in sync."""
+        if not self.is_configured():
+            return set()
+        urls = set()
+        try:
+            url_meta = self.property_map.get("url")
+            if not url_meta:
+                return urls
+            url_prop, _ = url_meta
+            query_url = f"https://api.notion.com/v1/databases/{self.database_id}/query"
+            has_more = True
+            next_cursor = None
+            while has_more:
+                body = {"page_size": 100}
+                if next_cursor:
+                    body["start_cursor"] = next_cursor
+                res = requests.post(query_url, headers=self.headers, json=body, timeout=25)
+                if res.status_code == 200:
+                    data = res.json()
+                    for p in data.get("results", []):
+                        u = p.get("properties", {}).get(url_prop, {}).get("url")
+                        if u:
+                            urls.add(u)
+                    has_more = data.get("has_more", False)
+                    next_cursor = data.get("next_cursor")
+                else:
+                    break
+        except Exception:
+            pass
+        return urls
 
     def push_job(self, job: Dict[str, Any]) -> bool:
         """Creates a new Notion page for the discovered job."""

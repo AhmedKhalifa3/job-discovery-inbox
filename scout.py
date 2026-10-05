@@ -653,8 +653,12 @@ class ProfileScorer:
 
 
         # 2. Profile Title-Only Exclusions (Disqualify if keyword appears in job title)
+        # Exempt if title explicitly welcomes Juniors, Working Students, or Interns (e.g. "Junior/Senior")
+        welcomes_entry = any(re.search(rf"\b{re.escape(w)}\b", lower_title) for w in ("junior", "werkstudent", "working student", "intern", "praktikant", "associate", "trainee"))
         for blocker in self.negative_title_keywords:
-            if blocker in lower_title:
+            if blocker in ("senior", "sr.", "sr") and welcomes_entry:
+                continue
+            if re.search(rf"\b{re.escape(blocker)}\b", lower_title):
                 return -10
 
         # 3. Profile General Negative Exclusions
@@ -907,7 +911,31 @@ def search_duckduckgo(query: str, timelimit: str = "w", max_results: int = 15) -
                 break
 
         with DDGS() as ddgs:
-            results = ddgs.text(query, timelimit=timelimit, max_results=max_results)
+            tl = timelimit if timelimit in ("d", "w", "m") else None
+            results = []
+            try:
+                results = list(ddgs.text(query, timelimit=tl, max_results=max_results, region="de-de"))
+            except Exception as e:
+                err_str = str(e).lower()
+                if "no results" in err_str or "404" in err_str:
+                    # Fallback without strict time limit for ATS dorks
+                    try:
+                        results = list(ddgs.text(query, max_results=max_results, region="de-de"))
+                    except Exception:
+                        pass
+                elif "ratelimit" in err_str or "104" in err_str:
+                    time.sleep(2.5)
+                else:
+                    pass
+
+            # If 24h filter yielded 0 results on an ATS site dork, check week window
+            if not results and tl == "d" and "site:" in query:
+                try:
+                    time.sleep(0.5)
+                    results = list(ddgs.text(query, timelimit="w", max_results=max_results, region="de-de"))
+                except Exception:
+                    pass
+
             for r in results:
                 title = r.get("title", "")
                 url = r.get("href", "")
@@ -1049,15 +1077,31 @@ def run_scout(
     include_apis: bool = True,
     profile_data: Optional[Dict[str, Any]] = None,
     queries_dict: Optional[Dict[str, List[str]]] = None,
-    max_queries: int = 25
+    max_queries: int = 25,
+    rescan: bool = False
 ):
     print(f"\n🚀 Running Job Scout for categories: {', '.join(categories)}")
     print(f"⏱️  Time filter: {'Past 24 hours' if timelimit == 'd' else 'Past week'}")
+    if rescan:
+        print("🔄 Rescan mode enabled: evaluating all postings without seen cache restrictions.")
 
     scorer = ProfileScorer(profile_data)
     active_queries = queries_dict or SEARCH_QUERIES
 
-    seen_urls = load_seen_jobs()
+    if rescan:
+        seen_urls = set()
+    else:
+        seen_urls = load_seen_jobs()
+        # Keep seen_urls aligned with Notion database if configured
+        syncer = NotionJobSyncer()
+        if syncer.is_configured():
+            try:
+                notion_urls = syncer.get_all_job_urls()
+                if notion_urls:
+                    seen_urls.update(notion_urls)
+            except Exception:
+                pass
+
     discovered_jobs: List[Dict[str, Any]] = []
 
     # 1. Search Dorks
@@ -1072,7 +1116,7 @@ def run_scout(
                 break
             print(f"🔎 Scanning: {q[:70]}...")
             raw_results = search_duckduckgo(q, timelimit=timelimit)
-            time.sleep(0.3)
+            time.sleep(0.8)
             for r in raw_results:
                 url = r.get("url", "")
                 if url in seen_urls:
@@ -1120,17 +1164,33 @@ def run_scout(
     # Sort descending by match score
     discovered_jobs.sort(key=lambda x: x.get("score", 0), reverse=True)
 
-    # Save outputs
+    # Save outputs & merge with previously unpushed local jobs so leads are never lost
+    all_local_jobs = list(discovered_jobs)
+    existing_urls = {j.get("url") for j in discovered_jobs if j.get("url")}
+    if os.path.exists(OUTPUT_JSON_FILE):
+        try:
+            with open(OUTPUT_JSON_FILE, "r", encoding="utf-8") as f:
+                prev_jobs = json.load(f)
+                if isinstance(prev_jobs, list):
+                    for pj in prev_jobs:
+                        if pj.get("url") and pj["url"] not in existing_urls:
+                            all_local_jobs.append(pj)
+                            existing_urls.add(pj["url"])
+        except Exception:
+            pass
+
+    all_local_jobs.sort(key=lambda x: x.get("score", 0), reverse=True)
+
     save_seen_jobs(seen_urls)
 
     with open(OUTPUT_JSON_FILE, "w", encoding="utf-8") as f:
-        json.dump(discovered_jobs, f, indent=2)
+        json.dump(all_local_jobs, f, indent=2)
 
-    md_report = generate_markdown_report(discovered_jobs)
+    md_report = generate_markdown_report(all_local_jobs)
     with open(OUTPUT_MD_FILE, "w", encoding="utf-8") as f:
         f.write(md_report)
 
-    print(f"\n✅ Finished! Found {len(discovered_jobs)} matching postings.")
+    print(f"\n✅ Finished! Found {len(discovered_jobs)} new matching postings ({len(all_local_jobs)} total in local inbox).")
     print(f"📁 Saved results to '{OUTPUT_JSON_FILE}' and '{OUTPUT_MD_FILE}'.")
 
     # 3. Notion Sync (optional or automated)
@@ -1146,7 +1206,7 @@ def run_scout(
         else:
             print("[Info] Notion credentials not configured in .env. Skipping sync.")
 
-    return discovered_jobs
+    return all_local_jobs
 
 def main():
     parser = argparse.ArgumentParser(description="Autonomous Job Discovery Scout")
@@ -1182,6 +1242,11 @@ def main():
         default=25,
         help="Maximum search dorks per category (default: 25, use 0 for unlimited)"
     )
+    parser.add_argument(
+        "--rescan",
+        action="store_true",
+        help="Re-evaluate all postings and ignore seen_jobs cache (useful to refresh all active leads)"
+    )
 
     args = parser.parse_args()
     if args.fresh == "24h":
@@ -1211,7 +1276,8 @@ def main():
         include_apis=not args.no_apis,
         profile_data=profile_data,
         queries_dict=queries,
-        max_queries=args.max_queries
+        max_queries=args.max_queries,
+        rescan=args.rescan
     )
 
 if __name__ == "__main__":
