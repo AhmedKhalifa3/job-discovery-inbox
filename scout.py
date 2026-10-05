@@ -8,6 +8,8 @@ with Notion & Overleaf pipeline.
 
 import os
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
 import time
 import json
 import re
@@ -1046,7 +1048,8 @@ def run_scout(
     push_to_notion: bool = False,
     include_apis: bool = True,
     profile_data: Optional[Dict[str, Any]] = None,
-    queries_dict: Optional[Dict[str, List[str]]] = None
+    queries_dict: Optional[Dict[str, List[str]]] = None,
+    max_queries: int = 25
 ):
     print(f"\n🚀 Running Job Scout for categories: {', '.join(categories)}")
     print(f"⏱️  Time filter: {'Past 24 hours' if timelimit == 'd' else 'Past week'}")
@@ -1058,12 +1061,18 @@ def run_scout(
     discovered_jobs: List[Dict[str, Any]] = []
 
     # 1. Search Dorks
+    rate_limit_hits = 0
     for cat in categories:
         queries = active_queries.get(cat, [])
+        if max_queries and max_queries > 0:
+            queries = queries[:max_queries]
         for q in queries:
+            if rate_limit_hits >= 3:
+                print("\n⚠️ DuckDuckGo search rate limits reached. Advancing directly to tech job feeds...")
+                break
             print(f"🔎 Scanning: {q[:70]}...")
             raw_results = search_duckduckgo(q, timelimit=timelimit)
-            time.sleep(0.35)
+            time.sleep(0.3)
             for r in raw_results:
                 url = r.get("url", "")
                 if url in seen_urls:
@@ -1167,6 +1176,12 @@ def main():
         action="store_true",
         help="Disable direct API feeds (search dorks only)"
     )
+    parser.add_argument(
+        "--max-queries",
+        type=int,
+        default=25,
+        help="Maximum search dorks per category (default: 25, use 0 for unlimited)"
+    )
 
     args = parser.parse_args()
     if args.fresh == "24h":
@@ -1195,7 +1210,8 @@ def main():
         push_to_notion=args.push_notion,
         include_apis=not args.no_apis,
         profile_data=profile_data,
-        queries_dict=queries
+        queries_dict=queries,
+        max_queries=args.max_queries
     )
 
 if __name__ == "__main__":
