@@ -26,7 +26,9 @@ from config import (
     API_SOURCES,
     ACTIVE_PROFILE,
     DOMAIN_BLACKLIST,
-    ATS_DOMAINS
+    ATS_DOMAINS,
+    resolve_allowed_domains,
+    resolve_blocked_domains
 )
 from notion_sync import NotionJobSyncer
 
@@ -47,13 +49,21 @@ def save_seen_jobs(seen_urls: set):
     with open(SEEN_JOBS_FILE, "w", encoding="utf-8") as f:
         json.dump(list(seen_urls), f, indent=2)
 
-def is_valid_job_url(url: str, is_dork: bool = False, custom_domains: Optional[List[str]] = None) -> bool:
+def is_valid_job_url(
+    url: str,
+    is_dork: bool = False,
+    custom_domains: Optional[List[str]] = None,
+    allowed_domains: Optional[List[str]] = None,
+    blocked_domains: Optional[List[str]] = None
+) -> bool:
     if not url:
         return False
     lower_url = url.lower()
     if any(ad in lower_url for ad in ['/aclick', '/aclk', 'ad_id=', 'msclkid=']):
         return False
-    for bad_domain in DOMAIN_BLACKLIST:
+
+    effective_blacklist = blocked_domains if blocked_domains is not None else DOMAIN_BLACKLIST
+    for bad_domain in effective_blacklist:
         if bad_domain in lower_url:
             return False
 
@@ -61,22 +71,28 @@ def is_valid_job_url(url: str, is_dork: bool = False, custom_domains: Optional[L
         from urllib.parse import urlparse
         host = urlparse(url).netloc.lower()
         path = urlparse(url).path.lower().strip('/')
-        allowed_domains = ATS_DOMAINS + [d.lower() for d in (custom_domains or [])]
-        if not any(d in host for d in allowed_domains):
+
+        effective_allowed = set(ATS_DOMAINS)
+        if allowed_domains:
+            effective_allowed.update(d.lower() for d in allowed_domains)
+        if custom_domains:
+            effective_allowed.update(d.lower() for d in custom_domains)
+
+        if not any(d in host for d in effective_allowed):
             return False
-        if not path or path in ('careers', 'jobs', 'about', 'search'):
+
+        # Generic reject for bare landing/nav/info pages
+        parts = [p for p in path.split('/') if p]
+        if not path or path in ('careers', 'jobs', 'about', 'search', 'faq', 'magazin', 'events', 'standorte', 'rechtliches', 'alumni', 'karriereservice'):
             return False
+        if any(bad in parts for bad in ('magazin', 'faq', 'standorte', 'rechtliches', 'students', 'account', 'merkzettel', 'ki', 'karriereservice', 'alumni', 'events')):
+            return False
+
+        # Social networks (X / Twitter) check
         if any(xd in host for xd in ('x.com', 'twitter.com')):
             if not any(marker in lower_url for marker in ('/status/', '/jobs/', '/article/')):
                 return False
-            parts = [p for p in path.split('/') if p]
             if parts and parts[0] in ('home', 'explore', 'login', 'notifications', 'search', 'settings', 'hashtag'):
-                return False
-        if 'stellenwerk.de' in host:
-            parts = [p for p in path.split('/') if p]
-            if len(parts) < 2:
-                return False
-            if any(bad in parts for bad in ('magazin', 'faq', 'standorte', 'rechtliches', 'students', 'account', 'merkzettel', 'ki', 'karriereservice', 'alumni', 'events')):
                 return False
 
     return True
@@ -278,6 +294,25 @@ class ProfileScorer:
             else:
                 self.target_company_names.append(c_str)
 
+        self.allowed_domains = resolve_allowed_domains(prof)
+        self.blocked_domains = resolve_blocked_domains(prof)
+
+        # Dynamic brand tokens for title cleaning
+        self.brand_tokens = set()
+        for plat in prof.get("ats_platforms", []):
+            p = str(plat).strip()
+            if p:
+                token = p.split("/")[0].split(".")[0]
+                if len(token) >= 2:
+                    self.brand_tokens.add(token)
+        for comp in self.target_company_names:
+            if comp and len(comp) >= 2:
+                self.brand_tokens.add(comp)
+        for cdom in self.target_company_domains:
+            token = cdom.split(".")[0]
+            if len(token) >= 2:
+                self.brand_tokens.add(token)
+
     def score(
         self,
         title: str,
@@ -287,7 +322,13 @@ class ProfileScorer:
         is_dork: bool = False,
         full_text: str = ""
     ) -> int:
-        if url and not is_valid_job_url(url, is_dork=is_dork, custom_domains=self.target_company_domains):
+        if url and not is_valid_job_url(
+            url,
+            is_dork=is_dork,
+            custom_domains=self.target_company_domains,
+            allowed_domains=self.allowed_domains,
+            blocked_domains=self.blocked_domains
+        ):
             return -10
 
         lower_title = title.lower()
@@ -411,15 +452,12 @@ def extract_company_from_title(title: str, url: str) -> str:
             return f"@{handle_match.group(1)}"
         return "X / Twitter"
 
-    if "stellenwerk.de" in lower_url:
-        comp_match = re.search(r'\b(?:bei|at)\s+([A-Z0-9][A-Za-z0-9&_\.\s\-]{1,30})(?:[.,\n\r"\'!?:;/|]|$)', title, re.IGNORECASE)
-        if comp_match and comp_match.group(1).lower() not in ('stellenwerk', 'fau'):
-            return comp_match.group(1).strip()
-        match_city = re.search(r'stellenwerk\.de/([^/]+)/', url)
-        if match_city:
-            city_slug = match_city.group(1).replace('-', ' ').title()
-            return f"Stellenwerk ({city_slug})"
-        return "Stellenwerk"
+    # Check for "bei <Company>" (German) or "at <Company>" (English) in job title
+    comp_match = re.search(r'\b(?:bei|at)\s+([A-Z0-9][A-Za-z0-9&_\.\s\-]{1,30})(?:[.,\n\r"\'!?:;/|]|$)', title, re.IGNORECASE)
+    if comp_match:
+        c_found = comp_match.group(1).strip()
+        if c_found.lower() not in ('home', 'uns', 'all', 'any', 'the', 'stellenwerk', 'fau'):
+            return c_found
 
     # Common formats: "Role at Company", "Company - Role", "Role | Company"
     if " at " in title:
@@ -433,18 +471,39 @@ def extract_company_from_title(title: str, url: str) -> str:
         return parts[0].strip()
 
     # Fallback: extract domain / subdomain
-    match = re.search(r"https?://([^/]+)/", url)
-    if match:
-        domain = match.group(1)
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    domain = parsed.netloc.replace("www.", "")
+    if domain:
+        path_parts = [p for p in parsed.path.split('/') if p]
+        if 'stellenwerk.de' in domain and path_parts:
+            city_slug = path_parts[0].replace('-', ' ').title()
+            return f"Stellenwerk ({city_slug})"
+
         sub = domain.split(".")[0]
-        if sub not in ("boards", "jobs", "www"):
+        if sub not in ("boards", "jobs", "careers", "workday"):
             return sub.capitalize()
+        parts = domain.split(".")
+        if len(parts) >= 2:
+            return parts[-2].capitalize()
+
     return "Company"
 
-def clean_role_title(title: str) -> str:
-    # Strip trailing website names like " | Greenhouse", " - Lever", " | Welcome to the Jungle", " / X", " | Twitter", " | stellenwerk"
+def clean_role_title(title: str, custom_brands: Optional[List[str]] = None) -> str:
+    base_brands = [
+        "Greenhouse", "Lever", "Ashby", "Personio", "Workday", "Smartrecruiters",
+        "Welcome to the Jungle", "WTTJ", "X", "Twitter", "Jobs", "Careers",
+        "Karriere", "Stellenwerk", "Hiring"
+    ]
+    # Dynamically incorporate brand tokens from active profile
+    profile_tokens = list(DEFAULT_SCORER.brand_tokens) if hasattr(DEFAULT_SCORER, 'brand_tokens') else []
+    custom_list = list(custom_brands) if custom_brands else []
+    all_brands = base_brands + custom_list + profile_tokens
+    valid_brands = [b for b in set(all_brands) if b and len(b) >= 2]
+    brands_regex = "|".join(re.escape(b) for b in sorted(valid_brands, key=len, reverse=True))
+
     cleaned = re.sub(
-        r"\s*(\||-|–|/)\s*(Greenhouse|Lever|Ashby|Personio|Jobs|Careers|Welcome to the Jungle|WTTJ|X|Twitter|stellenwerk).*$",
+        rf"\s*(\||-|–|/)\s*(?:{brands_regex}).*$",
         "",
         title,
         flags=re.IGNORECASE

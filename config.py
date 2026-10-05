@@ -32,6 +32,8 @@ DEFAULT_PROFILE = {
         "senior", "sr.", "lead", "manager", "architect"
     ],
     "ats_platforms": ["greenhouse", "lever", "ashby", "personio", "workday", "smartrecruiters"],
+    "allowed_domains": [],
+    "blocked_domains": [],
     "include_api_feeds": True,
     "custom_queries": []
 }
@@ -90,7 +92,10 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
 
     # 1. Generate clean per-platform dorks for top roles
     for plat in platforms:
-        plat_lower = plat.lower()
+        plat_str = str(plat).strip()
+        plat_lower = plat_str.lower()
+        if not plat_str:
+            continue
         if plat_lower in ("twitter", "x"):
             for role in roles[:2]:
                 queries_by_category["all_roles"].append(f'site:x.com "hiring" "{role}"')
@@ -110,6 +115,10 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
             continue
 
         site_dork = ATS_SITE_MAP.get(plat_lower)
+        if not site_dork and "." in plat_str:
+            # Custom portal / domain directly from profile (e.g. "join.com" or "stellenwerk.de/erlangen-nuernberg")
+            site_dork = plat_str
+
         if not site_dork:
             continue
 
@@ -208,16 +217,97 @@ API_SOURCES: List[Dict[str, Any]] = [
     }
 ]
 
-ATS_DOMAINS = [
+BASE_ATS_DOMAINS = [
     "greenhouse.io", "lever.co", "ashbyhq.com", "personio.de",
     "personio.com", "myworkdayjobs.com", "smartrecruiters.com", "notion.site",
     "welcometothejungle.com", "x.com", "twitter.com", "stellenwerk.de"
 ]
 
-DOMAIN_BLACKLIST = [
+BASE_DOMAIN_BLACKLIST = [
     "wikipedia.org", "studis-online.de", "karrierebibel.de", "haufe.de",
     "aok.de", "tk.de", "studierenplus.de", "arbeitsagentur.de", "stepstone.de",
     "indeed.com", "glassdoor.com", "kununu.com",
     "bing.com", "duckduckgo.com", "googleadservices.com", "doubleclick.net",
     "linkedin.com", "github.com", "reddit.com", "youtube.com"
 ]
+
+def extract_domains_from_profile(profile: Dict[str, Any]) -> List[str]:
+    """Dynamically extracts all domains targeted in the candidate profile.
+
+    Extracts domains from:
+    1. allowed_domains (explicit user list in profile.yaml)
+    2. target_companies (e.g. jobs.siemens.com, celonis.com)
+    3. ats_platforms (any entry containing a domain name or dot)
+    4. custom_queries (extracting site:domain or domain.tld from dorks)
+    """
+    import re
+    from urllib.parse import urlparse
+
+    discovered = set()
+
+    # 1. Explicit user allowed_domains
+    for dom in profile.get("allowed_domains", []):
+        d = str(dom).strip().lower()
+        if d:
+            parsed = urlparse(d if "://" in d else f"https://{d}").netloc or d
+            discovered.add(parsed.replace("www.", ""))
+
+    # 2. Target companies
+    for comp in profile.get("target_companies", []):
+        c = str(comp).strip().lower()
+        if "." in c:
+            parsed = urlparse(c if "://" in c else f"https://{c}").netloc or c
+            discovered.add(parsed.replace("www.", ""))
+
+    # 3. Custom platforms with domains (e.g. "join.com", "stellenwerk.de/erlangen-nuernberg")
+    for plat in profile.get("ats_platforms", []):
+        p = str(plat).strip().lower()
+        if "." in p:
+            host = p.split("/")[0]
+            parsed = urlparse(host if "://" in host else f"https://{host}").netloc or host
+            discovered.add(parsed.replace("www.", ""))
+
+    # 4. Custom queries (e.g. 'site:x.com ...', 'stellenwerk.de/erlangen-nuernberg ...')
+    for q in profile.get("custom_queries", []):
+        q_str = str(q).strip()
+        site_matches = re.findall(r'site:([a-zA-Z0-9.\-]+)', q_str)
+        for s in site_matches:
+            discovered.add(s.lower().replace("www.", ""))
+        dom_matches = re.findall(r'\b([a-zA-Z0-9\-]+\.[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9\-]+\.[a-zA-Z]{2,})\b', q_str)
+        for d in dom_matches:
+            if not any(d.lower().endswith(tld) for tld in ('.com', '.de', '.io', '.co', '.org', '.net', '.site', '.ch', '.fr', '.uk', '.jobs', '.ai', '.tech', '.app')):
+                continue
+            discovered.add(d.lower().replace("www.", ""))
+
+    return sorted(list(discovered))
+
+def resolve_allowed_domains(profile: Dict[str, Any]) -> List[str]:
+    """Combines base ATS domains with candidate's dynamic profile domains."""
+    profile_domains = extract_domains_from_profile(profile)
+    combined = set(BASE_ATS_DOMAINS + profile_domains)
+    return sorted(list(combined))
+
+def resolve_blocked_domains(profile: Dict[str, Any]) -> List[str]:
+    """Combines default blacklisted domains with candidate's custom blocked_domains,
+
+    and unblocks any domain the candidate has explicitly whitelisted in allowed_domains, target_companies, or queries.
+    """
+    user_blocked = [str(d).strip().lower() for d in profile.get("blocked_domains", []) if str(d).strip()]
+    combined = set(BASE_DOMAIN_BLACKLIST + user_blocked)
+
+    # If user explicitly allowed/targeted a domain, remove it from blacklist
+    allowed = set(extract_domains_from_profile(profile))
+    for a in allowed:
+        for b in list(combined):
+            if b in a or a in b:
+                combined.remove(b)
+
+    return sorted(list(combined))
+
+# Dynamic exports for active profile
+RESOLVED_ALLOWED_DOMAINS = resolve_allowed_domains(ACTIVE_PROFILE)
+RESOLVED_BLOCKED_DOMAINS = resolve_blocked_domains(ACTIVE_PROFILE)
+
+# Export aliases for backward compatibility
+ATS_DOMAINS = RESOLVED_ALLOWED_DOMAINS
+DOMAIN_BLACKLIST = RESOLVED_BLOCKED_DOMAINS

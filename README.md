@@ -98,13 +98,25 @@ negative_keywords:
   - "8+ years"
   - "sales"
 
-# Target ATS Platforms
+# Target ATS Platforms & Portals (Built-ins or any custom domain/portal!)
 ats_platforms:
   - "greenhouse"
   - "lever"
   - "ashby"
   - "personio"
   - "workday"
+  - "wttj"
+  - "twitter"
+  - "stellenwerk.de/erlangen-nuernberg"  # Custom university/job portal
+
+# Custom Domains to Whitelist (Optional)
+# Any domain here, in target_companies, or in custom_queries is auto-whitelisted:
+allowed_domains:
+  - "join.com"
+
+# Custom Domains to Blacklist (Optional)
+blocked_domains:
+  - "unwanted-aggregator.com"
 ```
 
 ---

@@ -74,16 +74,26 @@ negative_title_keywords:
   - "hire"
   - "freelance"
 
-# ATS Platforms to Hunt On
-# Supported: greenhouse, lever, ashby, personio, workday, smartrecruiters
+# ATS Platforms & Portals to Hunt On
+# Supports shortcuts: greenhouse, lever, ashby, personio, workday, smartrecruiters, wttj, twitter, stellenwerk
+# OR any direct custom portal/domain (e.g. 'join.com', 'stellenwerk.de/erlangen-nuernberg', 'builtin.com')
 ats_platforms:
   - "greenhouse"
   - "lever"
   - "ashby"
   - "personio"
   - "workday"
+  - "wttj"
 
-# Direct Job APIs to Include (e.g. Arbeitnow, Jobicy)
+# Custom Domains to Whitelist (Optional)
+# Any domain specified here, in target_companies, or in custom_queries is automatically whitelisted.
+allowed_domains: []
+
+# Custom Domains to Blacklist (Optional)
+# Overrides/extends default blocked domains (aggregators, social media, ads)
+blocked_domains: []
+
+# Direct Job APIs to Include (e.g. Arbeitnow, Jobicy, Remotive)
 include_api_feeds: true
 
 # Optional: Add any manual Google / DuckDuckGo search dorks directly
