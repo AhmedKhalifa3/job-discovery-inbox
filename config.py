@@ -220,7 +220,8 @@ API_SOURCES: List[Dict[str, Any]] = [
 BASE_ATS_DOMAINS = [
     "greenhouse.io", "lever.co", "ashbyhq.com", "personio.de",
     "personio.com", "myworkdayjobs.com", "smartrecruiters.com", "notion.site",
-    "welcometothejungle.com", "x.com", "twitter.com", "stellenwerk.de"
+    "welcometothejungle.com", "x.com", "twitter.com", "stellenwerk.de",
+    "arbeitnow.com", "jobicy.com", "remotive.com"
 ]
 
 BASE_DOMAIN_BLACKLIST = [

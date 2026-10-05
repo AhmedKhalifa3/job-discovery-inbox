@@ -345,7 +345,8 @@ ENGINEERING_ROLE_INDICATORS = {
     "entwicklerin", "specialist", "automation", "sdet", "working student",
     "werkstudent", "werkstudentin", "intern", "internship", "praktikant",
     "praktikum", "software", "architect", "architekt", "tester", "testing",
-    "consultant", "scientist", "programmer", "devops", "cloud", "qa"
+    "consultant", "scientist", "programmer", "devops", "cloud", "qa",
+    "security"
 }
 
 OUT_OF_SCOPE_LOCATIONS = {
@@ -360,8 +361,12 @@ OUT_OF_SCOPE_LOCATIONS = {
     "vienna", "stockholm", "copenhagen", "brussels", "dublin", "lisbon",
     "porto", "toronto", "vancouver", "new york", "san francisco", "chicago",
     "boston", "austin", "seattle", "los angeles", "bengaluru", "bangalore",
-    "delhi", "mumbai", "hyderabad", "pune"
+    "delhi", "mumbai", "hyderabad", "pune", "noida", "gurgaon", "gurugram",
+    "chennai", "kolkata", "boca raton", "boca-raton", "florida", "california",
+    "texas", "turkey", "türkiye", "istanbul", "ankara", "nigeria", "lagos",
+    "ontario", "montreal", "apac", "latam"
 }
+
 
 RELOCATION_REGEX = re.compile(
     r"\b("
@@ -496,6 +501,11 @@ class ProfileScorer:
 
         # Out-of-scope locations excluding candidate's physical locations
         self.effective_out_of_scope = {loc for loc in OUT_OF_SCOPE_LOCATIONS if loc not in self.physical_locations}
+        sorted_oos = sorted(self.effective_out_of_scope, key=len, reverse=True)
+        self.oos_regex = re.compile(
+            r"\b(" + "|".join(re.escape(loc) for loc in sorted_oos) + r")\b",
+            re.IGNORECASE
+        )
 
         # Identify immediate home/priority cities (defaults to top 4 specific entries in locations)
         self.home_cities = [c.lower() for c in prof.get("home_cities", [])]
@@ -600,15 +610,22 @@ class ProfileScorer:
         ):
             return -10
 
-        lower_title = title.lower()
+        lower_title = title.lower().strip()
         search_body = full_text if full_text else snippet
-        text = f"{title} {search_body} {location}".lower()
+        loc_str = "" if "specified in jd" in location.lower() else location
+        text = f"{title} {search_body} {loc_str}".lower()
 
-        # 0a. Block non-engineering crowd-work roles
+        # 0a. Reject bare URLs, social chatter prefixes, or future year / bootcamp titles
+        if re.search(r"^(https?://|t\.co/|apply now|you asked|we are excited)", lower_title):
+            return 0  # Not a valid role posting
+        if any(bad in lower_title for bad in ("2027", "2028", "bootcamp", "boot camp")):
+            return -10
+
+        # 0b. Block non-engineering crowd-work roles
         if any(cw in lower_title for cw in CROWDWORK_TITLE_KEYWORDS):
             return -10
 
-        # 0b. Enforce Candidate Target Disciplines in Title (or snippet/text for search dorks)
+        # 0c. Enforce Candidate Target Disciplines in Title (or snippet/text for search dorks)
         # Short acronym tokens ('ai', 'ml', 'qa') alone in title do not qualify unless paired with engineering indicators
         short_acronyms = {"ai", "ml", "qa"}
         if self.target_title_tokens:
@@ -621,6 +638,7 @@ class ProfileScorer:
 
             if not has_role_match and not any(token in search_body.lower() for token in self.target_title_tokens):
                 return 0  # Disqualified: Title/snippet does not match candidate's target disciplines
+
 
         # 1. Excluded Language Requirements Blocker (fast-filtered by language name presence)
         for lang_key, (reg, exemptions) in self.language_filters.items():
@@ -637,10 +655,16 @@ class ProfileScorer:
             if blocker in lower_title:
                 return -10
 
-        # 3. Profile General Negative Exclusions (Disqualify if in title or text)
+        # 3. Profile General Negative Exclusions
+        # Role/domain blockers should ONLY disqualify if present in the title
+        # Experience blockers (e.g. '8+ years') disqualify if found in text
         for neg in self.negative_keywords:
-            if neg in lower_title or neg in text:
-                return -10
+            if re.search(r"\d+\+?\s*years?", neg):
+                if neg in text:
+                    return -10
+            else:
+                if re.search(rf"\b{re.escape(neg)}\b", lower_title):
+                    return -10
 
         score = 0
 
@@ -692,12 +716,19 @@ class ProfileScorer:
                     is_allowed_location = True
             elif any(pl in clean_loc for pl in self.physical_locations):
                 is_allowed_location = True
-            elif any(oos in clean_loc for oos in self.effective_out_of_scope):
+            elif self.oos_regex.search(clean_loc):
                 is_explicitly_out_of_scope = True
+
+        # Check if title, url, or explicit location contains an out-of-scope city/country
+        clean_url = re.sub(r"/[a-z]{2}[-_][a-z]{2}/", "/", url.lower())
+        target_check = f"{lower_title} {clean_url} {clean_loc}".replace("-", " ")
+        if self.oos_regex.search(target_check) and not any(pl in target_check for pl in self.physical_locations):
+            is_explicitly_out_of_scope = True
 
         # If location was not explicit or was generic, check text and URL
         if not is_allowed_location and not is_explicitly_out_of_scope:
-            lower_url = url.lower()
+            lower_url = clean_url
+
             if any(pl in text for pl in self.physical_locations) or any(pl in lower_url for pl in self.physical_locations):
                 is_allowed_location = True
             elif any(rw in text for rw in ("remote", "home office", "100% remote", "fully remote", "work from anywhere")):
@@ -710,7 +741,7 @@ class ProfileScorer:
             oos_match = re.search(r"\b(?:based\s+in|location\s*:\s*|office\s+in|located\s+in|jobs\s+in)\s+([a-zA-Z\s]{2,40})", text)
             if oos_match:
                 anchor = oos_match.group(1).strip().lower()
-                if any(oos in anchor for oos in self.effective_out_of_scope) and not any(pl in anchor for pl in self.physical_locations):
+                if self.oos_regex.search(anchor) and not any(pl in anchor for pl in self.physical_locations):
                     is_explicitly_out_of_scope = True
 
 
