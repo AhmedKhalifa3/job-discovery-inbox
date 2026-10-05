@@ -49,6 +49,75 @@ def save_seen_jobs(seen_urls: set):
     with open(SEEN_JOBS_FILE, "w", encoding="utf-8") as f:
         json.dump(list(seen_urls), f, indent=2)
 
+from html.parser import HTMLParser
+
+class HTMLTextExtractor(HTMLParser):
+    """Fast, zero-dependency HTML text extractor that strips scripts, styles, and extracts readable text."""
+    def __init__(self):
+        super().__init__()
+        self.result = []
+        self.skip_tags = {'script', 'style', 'noscript', 'svg', 'iframe'}
+        self.in_skip_tag = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() in self.skip_tags:
+            self.in_skip_tag += 1
+        elif tag.lower() in ('p', 'br', 'div', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr'):
+            self.result.append('\n')
+
+    def handle_endtag(self, tag):
+        if tag.lower() in self.skip_tags:
+            self.in_skip_tag = max(0, self.in_skip_tag - 1)
+        elif tag.lower() in ('p', 'div', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'tr'):
+            self.result.append('\n')
+
+    def handle_data(self, data):
+        if self.in_skip_tag == 0:
+            self.result.append(data)
+
+    def get_text(self) -> str:
+        raw = ''.join(self.result)
+        lines = [re.sub(r'[ \t]+', ' ', line).strip() for line in raw.split('\n')]
+        return '\n'.join(line for line in lines if line)
+
+_PAGE_CACHE: Dict[str, str] = {}
+
+def fetch_job_page_text(url: str, timeout: int = 6) -> str:
+    """Fetches real webpage text for a job posting URL.
+
+    Bypasses social media (Twitter/X) or invalid URLs.
+    Caches results in-memory during the scout run to avoid duplicate requests.
+    """
+    if not url:
+        return ""
+    if url in _PAGE_CACHE:
+        return _PAGE_CACHE[url]
+
+    lower_url = url.lower()
+    if any(domain in lower_url for domain in ("x.com", "twitter.com")):
+        return ""
+
+    try:
+        import requests
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9,de;q=0.8"
+        }
+        resp = requests.get(url, headers=headers, timeout=timeout)
+        if resp.status_code == 200:
+            html_content = resp.content.decode("utf-8", errors="replace")
+            parser = HTMLTextExtractor()
+            parser.feed(html_content)
+            clean_text = parser.get_text()[:15000]
+            _PAGE_CACHE[url] = clean_text
+            return clean_text
+    except Exception:
+        pass
+
+    _PAGE_CACHE[url] = ""
+    return ""
+
+
 def is_valid_job_url(
     url: str,
     is_dork: bool = False,
@@ -170,8 +239,164 @@ LANGUAGE_DICTIONARY = {
             r"svenska\s+(flytande|modersm[åa]l|krav)",
             r"flytande\s+svenska",
         ]
+    },
+    "greek": {
+        "names": ["greek", "grec", "griechisch", "ελληνικά", "ellinika"],
+        "native_patterns": [
+            r"griechisch\w*",
+            r"grec\w*",
+            r"ελληνικά",
+            r"ellinika",
+        ]
+    },
+    "russian": {
+        "names": ["russian", "russisch", "russe"],
+        "native_patterns": [
+            r"russisch\w*",
+            r"русский",
+        ]
+    },
+    "czech": {
+        "names": ["czech", "tschechisch"],
+        "native_patterns": [
+            r"tschechisch\w*",
+            r"čeština",
+            r"cestina",
+        ]
+    },
+    "turkish": {
+        "names": ["turkish", "türkisch", "turc"],
+        "native_patterns": [
+            r"t[üu]rkisch\w*",
+            r"türkçe",
+            r"turkce",
+        ]
+    },
+    "hungarian": {
+        "names": ["hungarian", "ungarisch"],
+        "native_patterns": [
+            r"ungarisch\w*",
+            r"magyar",
+        ]
+    },
+    "romanian": {
+        "names": ["romanian", "rumänisch", "roumain"],
+        "native_patterns": [
+            r"rum[äa]nisch\w*",
+            r"română",
+            r"romana",
+        ]
+    },
+    "arabic": {
+        "names": ["arabic", "arabisch", "arabe"],
+        "native_patterns": [
+            r"arabisch\w*",
+            r"العربية",
+        ]
+    },
+    "japanese": {
+        "names": ["japanese", "japanisch", "japonais"],
+        "native_patterns": [
+            r"japanisch\w*",
+            r"日本語",
+        ]
+    },
+    "chinese": {
+        "names": ["chinese", "chinesisch", "chinois", "mandarin"],
+        "native_patterns": [
+            r"chinesisch\w*",
+            r"mandarin\w*",
+            r"中文",
+        ]
+    },
+    "danish": {
+        "names": ["danish", "dänisch", "dansk"],
+        "native_patterns": [
+            r"d[äa]nisch\w*",
+            r"dansk",
+        ]
+    },
+    "norwegian": {
+        "names": ["norwegian", "norwegisch", "norsk"],
+        "native_patterns": [
+            r"norwegisch\w*",
+            r"norsk",
+        ]
+    },
+    "finnish": {
+        "names": ["finnish", "finnisch", "suomi"],
+        "native_patterns": [
+            r"finnisch\w*",
+            r"suomi",
+        ]
     }
 }
+
+CROWDWORK_TITLE_KEYWORDS = {
+    "trainer", "trainers", "training network", "annotator", "annotators",
+    "annotation", "labeler", "labelers", "labeling", "transcriptionist",
+    "transcriber", "content reviewer", "evaluator", "evaluators", "tutor",
+    "voice actor", "crowdworker", "crowd-worker", "prompt evaluator",
+    "data rater", "ai rater", "search evaluator"
+}
+
+ENGINEERING_ROLE_INDICATORS = {
+    "engineer", "engineering", "developer", "development", "entwickler",
+    "entwicklerin", "specialist", "automation", "sdet", "working student",
+    "werkstudent", "werkstudentin", "intern", "internship", "praktikant",
+    "praktikum", "software", "architect", "architekt", "tester", "testing",
+    "consultant", "scientist", "programmer", "devops", "cloud", "qa"
+}
+
+OUT_OF_SCOPE_LOCATIONS = {
+    "france", "united kingdom", "uk", "great britain", "england", "scotland", "wales",
+    "united states", "usa", "us", "india", "greece", "spain", "italy",
+    "netherlands", "poland", "switzerland", "austria", "sweden", "denmark",
+    "belgium", "ireland", "portugal", "canada", "australia", "singapore",
+    "brazil", "japan", "china", "mexico", "turkey", "israel", "romania",
+    "czech republic", "czechia", "norway", "finland",
+    "paris", "london", "athens", "madrid", "barcelona", "rome", "milan",
+    "amsterdam", "rotterdam", "warsaw", "krakow", "zurich", "geneva",
+    "vienna", "stockholm", "copenhagen", "brussels", "dublin", "lisbon",
+    "porto", "toronto", "vancouver", "new york", "san francisco", "chicago",
+    "boston", "austin", "seattle", "los angeles", "bengaluru", "bangalore",
+    "delhi", "mumbai", "hyderabad", "pune"
+}
+
+RELOCATION_REGEX = re.compile(
+    r"\b("
+    r"visa\s+sponsorship|"
+    r"sponsors?\s+(work\s+)?visas?|"
+    r"sponsorship\s+(is\s+)?available|"
+    r"visa\s+support|"
+    r"relocation\s+(support|package|assistance|allowance|bonus|help|budget|covered|offered)|"
+    r"relocate\s+to|"
+    r"help\s+with\s+relocation|"
+    r"assist\s+with\s+relocation|"
+    r"we\s+(offer|provide)\s+relocation|"
+    r"support\s+with\s+(relocation|visa)|"
+    r"relocation\s+assistance\s+provided"
+    r")\b",
+    re.IGNORECASE
+)
+
+def check_relocation_sponsorship(text: str) -> bool:
+    """Checks whether the job explicitly offers visa sponsorship or relocation assistance."""
+    if not text:
+        return False
+    lower = text.lower()
+    pos_match = RELOCATION_REGEX.search(lower)
+    if not pos_match:
+        return False
+    match_start = pos_match.start()
+    prefix = lower[max(0, match_start - 35):match_start]
+    if re.search(r"\b(no|not|cannot|can't|unable\s+to|without)\s+$", prefix):
+        return False
+    if re.search(r"\b(no\s+visa\s+sponsorship|cannot\s+(provide|sponsor)\s+visa|no\s+relocation)\b", lower):
+        neg_m = re.search(r"\b(no|cannot\s+provide|cannot\s+sponsor)\s+(visa\s+sponsorship|relocation)", lower)
+        if neg_m and neg_m.start() <= match_start <= neg_m.end():
+            return False
+    return True
 
 def build_language_filter(excluded_languages: List[str]):
     """Dynamically compiles requirement patterns and exemption phrases for excluded languages.
@@ -200,9 +425,11 @@ def build_language_filter(excluded_languages: List[str]):
         # International English phrasing patterns for this language
         for name in names:
             escaped_name = re.escape(name)
-            patterns.append(rf"\b(fluent|native|business\s+fluent|proficient)\s+(in\s+)?{escaped_name}\b")
+            patterns.append(rf"\b(fluent|native|near-native|business\s+fluent|proficient)\s+(in\s+|fluency\s+in\s+)?{escaped_name}\b")
+            patterns.append(rf"\b(fluency\s+in|fluent\s+in|native\s+in|proficiency\s+in)\s+{escaped_name}\b")
+            patterns.append(rf"\b{escaped_name}[-\s]speaking\s+(candidates?|contributors?|engineers?|developers?|team|personnel|professionals?|individuals?)\b")
             patterns.append(rf"\b{escaped_name}\s+(is\s+)?(mandatory|essential|required|indispensable|compulsory|prerequisite)\b")
-            patterns.append(rf"\b{escaped_name}\s*[:\-\(\s]*(c1|c2|fluent|native|b2|advanced)\b")
+            patterns.append(rf"\b{escaped_name}\s*[:\-\(\s]*(c1|c2|fluent|native|b2|advanced|mother\s+tongue)\b")
             patterns.append(rf"\b(c1|c2|b2)\s*(-|\s)?{escaped_name}\b")
             patterns.append(rf"\b(minimum|level)\s+(c1|c2|b2)\s+(in\s+)?{escaped_name}\b")
             patterns.append(rf"\bexcellent\s+(command\s+of\s+)?{escaped_name}\b")
@@ -220,7 +447,10 @@ def build_language_filter(excluded_languages: List[str]):
                 f"{name} is optional",
                 f"bonus: {name}",
                 f"bonus: fluent {name}",
-                f"{name} a plus"
+                f"{name} a plus",
+                f"nice to have: {name}",
+                f"nice to have: fluent {name}",
+                f"{name} would be a plus"
             ])
 
     if not patterns:
@@ -228,6 +458,7 @@ def build_language_filter(excluded_languages: List[str]):
 
     compiled_regex = re.compile("|".join(patterns), re.IGNORECASE)
     return compiled_regex, exemptions
+
 
 class ProfileScorer:
     """Evaluates and scores job opportunities dynamically based on a candidate's profile."""
@@ -240,17 +471,32 @@ class ProfileScorer:
         self.negative_keywords = [n.lower() for n in prof.get("negative_keywords", [])]
         self.negative_title_keywords = [nt.lower() for nt in prof.get("negative_title_keywords", [])]
         self.locations = [l.lower() for l in prof.get("locations", [])]
-        # Expanded locations: If candidate targets Germany, automatically recognize all major German cities & states
-        self.expanded_locations = set(self.locations)
+
+        # Physical on-site / hybrid allowed locations from candidate profile
+        self.physical_locations = set()
+        for loc in self.locations:
+            l_clean = loc.strip().lower()
+            if l_clean not in ("remote", "remote germany", "remote europe", "worldwide", "anywhere", "europe"):
+                self.physical_locations.add(l_clean)
+
+        # If candidate targets Germany, automatically recognize all major German cities & states
         if any(g in self.locations for g in ("germany", "deutschland", "de")):
-            self.expanded_locations.update({
-                "berlin", "münchen", "munich", "hamburg", "frankfurt", "köln", "cologne",
+            german_cities = {
+                "berlin", "münchen", "munich", "hamburg", "frankfurt", "frankfurt am main", "köln", "cologne",
                 "stuttgart", "düsseldorf", "dusseldorf", "leipzig", "dresden", "karlsruhe",
-                "nürnberg", "nuremberg", "erlangen", "hannover", "hanover", "bonn",
+                "nürnberg", "nuremberg", "erlangen", "fürth", "fuerth", "hannover", "hanover", "bonn",
                 "mannheim", "heidelberg", "darmstadt", "aachen", "bremen", "freiburg",
                 "regensburg", "ingolstadt", "ulm", "augsburg", "würzburg", "wuerzburg",
                 "bayern", "bavaria", "baden-württemberg", "nrw", "hessen"
-            })
+            }
+            self.physical_locations.update(german_cities)
+
+        self.expanded_locations = set(self.locations) | self.physical_locations
+        self.allows_remote = any(r in self.locations for r in ("remote", "remote germany", "remote europe", "europe", "worldwide", "anywhere"))
+
+        # Out-of-scope locations excluding candidate's physical locations
+        self.effective_out_of_scope = {loc for loc in OUT_OF_SCOPE_LOCATIONS if loc not in self.physical_locations}
+
         # Identify immediate home/priority cities (defaults to top 4 specific entries in locations)
         self.home_cities = [c.lower() for c in prof.get("home_cities", [])]
         if not self.home_cities:
@@ -258,12 +504,35 @@ class ProfileScorer:
             candidate_specifics = [l.lower() for l in self.locations if l.lower() not in general_keys]
             self.home_cities = candidate_specifics[:4]
 
+        # Candidate spoken languages (English by default, plus any explicitly listed)
+        candidate_spoken = {"english"}
+        for sl in prof.get("spoken_languages", []) or prof.get("languages", []):
+            s_clean = str(sl).strip().lower()
+            if s_clean:
+                candidate_spoken.add(s_clean)
+
         self.excluded_languages = list(prof.get("excluded_language_requirements", []))
         if prof.get("exclude_german_required") and "German" not in self.excluded_languages and "german" not in [l.lower() for l in self.excluded_languages]:
             self.excluded_languages.append("German")
-        self.language_regex, self.language_exemptions = build_language_filter(self.excluded_languages)
 
-        # Dynamically derive target title tokens from candidate profile (generic for any field)
+        # Auto-exclude any language in dictionary not in candidate's spoken languages
+        for lang_key in LANGUAGE_DICTIONARY.keys():
+            if lang_key not in candidate_spoken and lang_key not in [l.lower() for l in self.excluded_languages]:
+                self.excluded_languages.append(lang_key)
+
+        # Pre-compile modular per-language filters and name maps for instant lookup
+        self.language_filters = {}
+        self.language_names_map = {}
+
+        for lang in self.excluded_languages:
+            lk = lang.strip().lower()
+            reg, ex = build_language_filter([lang])
+            if reg:
+                self.language_filters[lk] = (reg, ex)
+            names = LANGUAGE_DICTIONARY.get(lk, {}).get("names", [lk])
+            self.language_names_map[lk] = [n.lower() for n in names]
+
+        # Dynamically derive target title tokens from candidate profile
         self.target_title_tokens = set()
         stop_words = {
             "and", "the", "for", "with", "all", "our", "you", "new", "job", "career",
@@ -335,15 +604,33 @@ class ProfileScorer:
         search_body = full_text if full_text else snippet
         text = f"{title} {search_body} {location}".lower()
 
-        # 0. Enforce Candidate Target Disciplines in Title (or snippet/text for search dorks)
-        if self.target_title_tokens and not any(token in lower_title for token in self.target_title_tokens):
-            if not any(token in search_body.lower() for token in self.target_title_tokens):
+        # 0a. Block non-engineering crowd-work roles
+        if any(cw in lower_title for cw in CROWDWORK_TITLE_KEYWORDS):
+            return -10
+
+        # 0b. Enforce Candidate Target Disciplines in Title (or snippet/text for search dorks)
+        # Short acronym tokens ('ai', 'ml', 'qa') alone in title do not qualify unless paired with engineering indicators
+        short_acronyms = {"ai", "ml", "qa"}
+        if self.target_title_tokens:
+            has_role_match = any(token in lower_title for token in self.target_title_tokens if token not in short_acronyms)
+            if not has_role_match:
+                has_short_acronym = any(re.search(rf"\b{re.escape(sa)}\b", lower_title) for sa in short_acronyms)
+                has_eng_indicator = any(ei in lower_title for ei in ENGINEERING_ROLE_INDICATORS)
+                if has_short_acronym and has_eng_indicator:
+                    has_role_match = True
+
+            if not has_role_match and not any(token in search_body.lower() for token in self.target_title_tokens):
                 return 0  # Disqualified: Title/snippet does not match candidate's target disciplines
 
-        # 1. Excluded Language Requirements Blocker
-        if self.language_regex and self.language_regex.search(text):
-            if not any(ex in text for ex in self.language_exemptions):
-                return -10  # Disqualified: Requires language candidate does not speak fluently
+        # 1. Excluded Language Requirements Blocker (fast-filtered by language name presence)
+        for lang_key, (reg, exemptions) in self.language_filters.items():
+            names = self.language_names_map.get(lang_key, [lang_key])
+            if not any(n in text for n in names):
+                continue
+            if reg.search(text):
+                if not any(ex in text for ex in exemptions):
+                    return -10  # Disqualified: Requires language candidate does not speak fluently
+
 
         # 2. Profile Title-Only Exclusions (Disqualify if keyword appears in job title)
         for blocker in self.negative_title_keywords:
@@ -386,8 +673,63 @@ class ProfileScorer:
         if self.contract_types and any(ct in lower_title for ct in self.contract_types):
             score += 2
 
-        # 6. Preferred Locations Boost (from profile and expanded German cities)
-        if self.expanded_locations and any(loc in text for loc in self.expanded_locations):
+        # 6. Location & Relocation Gate
+        has_relocation = check_relocation_sponsorship(text)
+        clean_loc = location.strip().lower()
+
+        is_allowed_location = False
+        is_explicitly_out_of_scope = False
+
+        # Evaluate explicit location parameter if provided
+        if clean_loc and clean_loc != "remote / specified in jd":
+            # Check if remote
+            if any(rw in clean_loc for rw in ("remote", "anywhere", "worldwide", "work from anywhere", "home office")):
+                # Check for country restriction outside candidate region
+                restricted = re.search(r"\b(us\s+only|usa\s+only|united\s+states\s+only|uk\s+only|france\s+only|canada\s+only|latam\s+only|apac\s+only)\b", clean_loc)
+                if restricted:
+                    is_explicitly_out_of_scope = True
+                elif self.allows_remote:
+                    is_allowed_location = True
+            elif any(pl in clean_loc for pl in self.physical_locations):
+                is_allowed_location = True
+            elif any(oos in clean_loc for oos in self.effective_out_of_scope):
+                is_explicitly_out_of_scope = True
+
+        # If location was not explicit or was generic, check text and URL
+        if not is_allowed_location and not is_explicitly_out_of_scope:
+            lower_url = url.lower()
+            if any(pl in text for pl in self.physical_locations) or any(pl in lower_url for pl in self.physical_locations):
+                is_allowed_location = True
+            elif any(rw in text for rw in ("remote", "home office", "100% remote", "fully remote", "work from anywhere")):
+                restricted = re.search(r"\b(us\s+only|usa\s+only|united\s+states\s+only|uk\s+only|france\s+only|canada\s+only|latam\s+only|apac\s+only)\b", text)
+                if restricted:
+                    is_explicitly_out_of_scope = True
+                elif self.allows_remote:
+                    is_allowed_location = True
+            # Check if text explicitly anchors to an out-of-scope location
+            oos_match = re.search(r"\b(?:based\s+in|location\s*:\s*|office\s+in|located\s+in|jobs\s+in)\s+([a-zA-Z\s]{2,40})", text)
+            if oos_match:
+                anchor = oos_match.group(1).strip().lower()
+                if any(oos in anchor for oos in self.effective_out_of_scope) and not any(pl in anchor for pl in self.physical_locations):
+                    is_explicitly_out_of_scope = True
+
+
+        # If job is from candidate's recognized target company domain or German domain and no out-of-scope marker was found:
+        if not is_allowed_location and not is_explicitly_out_of_scope and is_dork:
+            lower_url = url.lower()
+            if any(cd in lower_url for cd in self.target_company_domains) or lower_url.endswith(".de") or ".de/" in lower_url:
+                is_allowed_location = True
+
+        # Enforce Location Gate Rule:
+        if is_explicitly_out_of_scope or not is_allowed_location:
+            if has_relocation:
+                # Outside candidate's locations BUT sponsors relocation / visa -> KEEP & award bonus!
+                score += 2
+            else:
+                # Outside candidate's locations and DOES NOT sponsor relocation -> DISQUALIFY!
+                return -10
+        else:
+            # Within candidate's allowed locations
             score += 2
             # Extra priority boost if matching candidate's immediate home/priority cities (e.g. Nürnberg, Erlangen)
             if any(hc in text for hc in self.home_cities):
@@ -410,6 +752,7 @@ class ProfileScorer:
             score += 3  # High boost for designated target companies!
 
         return score
+
 
 DEFAULT_SCORER = ProfileScorer(ACTIVE_PROFILE)
 
@@ -522,6 +865,14 @@ def search_duckduckgo(query: str, timelimit: str = "w", max_results: int = 15) -
             from ddgs import DDGS
         except ImportError:
             from duckduckgo_search import DDGS
+
+        q_lower = query.lower()
+        loc_hint = "Remote / Specified in JD"
+        for candidate_loc in ("nürnberg", "nuremberg", "erlangen", "fürth", "münchen", "munich", "berlin", "hamburg", "frankfurt", "stuttgart", "köln", "cologne", "germany", "deutschland", "remote"):
+            if candidate_loc in q_lower:
+                loc_hint = candidate_loc.capitalize()
+                break
+
         with DDGS() as ddgs:
             results = ddgs.text(query, timelimit=timelimit, max_results=max_results)
             for r in results:
@@ -537,7 +888,7 @@ def search_duckduckgo(query: str, timelimit: str = "w", max_results: int = 15) -
                     "role": role,
                     "url": url,
                     "snippet": body,
-                    "location": "Remote / Specified in JD",
+                    "location": loc_hint,
                     "source": "Search Dork"
                 })
     except ImportError:
@@ -687,14 +1038,24 @@ def run_scout(
                 if url in seen_urls:
                     continue
 
-                score = score_job(r["role"], r["snippet"], r["location"], url=url, is_dork=True, scorer=scorer)
-                if score >= 1:
-                    r["score"] = score
+                # Step 1: Fast pre-score with snippet
+                pre_score = score_job(r["role"], r["snippet"], r["location"], url=url, is_dork=True, scorer=scorer)
+                if pre_score <= 0:
+                    continue
+
+                # Step 2: Fetch full webpage text if not twitter/x
+                full_text = fetch_job_page_text(url)
+                r["full_text"] = full_text
+
+                # Step 3: Full rescore with full text
+                final_score = score_job(r["role"], r["snippet"], r["location"], url=url, is_dork=True, full_text=full_text, scorer=scorer)
+                if final_score >= 3:
+                    r["score"] = final_score
                     r["category"] = cat
                     discovered_jobs.append(r)
                     seen_urls.add(url)
 
-    # 2. Free Job APIs (Arbeitnow & Jobicy)
+    # 2. Free Job APIs (Arbeitnow & Jobicy & Remotive)
     if include_apis:
         print("\n🌐 Querying direct tech job feeds (Germany & Remote Europe)...")
         api_jobs = fetch_arbeitnow_jobs() + fetch_jobicy_jobs() + fetch_remotive_jobs()
@@ -704,12 +1065,17 @@ def run_scout(
                 continue
 
             full_text = r.get("full_text", "")
+            if not full_text and url:
+                full_text = fetch_job_page_text(url)
+                r["full_text"] = full_text
+
             score = score_job(r["role"], r["snippet"], r["location"], url=url, full_text=full_text, scorer=scorer)
-            if score >= 1:
+            if score >= 3:
                 r["score"] = score
                 r["category"] = "api_feed"
                 discovered_jobs.append(r)
                 seen_urls.add(url)
+
 
     # Sort descending by match score
     discovered_jobs.sort(key=lambda x: x.get("score", 0), reverse=True)
