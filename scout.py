@@ -467,6 +467,44 @@ def build_language_filter(excluded_languages: List[str]):
     return compiled_regex, exemptions
 
 
+def expand_profile_keyword_variants(keyword: str) -> set:
+    """Generically expands any keyword from candidate profile to catch
+    plurals, grammatical variants, and frequent homophone typos:
+    - principal <-> principle (frequent recruiter typo)
+    - plurals: architect -> architects, manager -> managers, lead -> leads
+    - abbreviations: sr -> senior / sr. / snr
+    """
+    clean = keyword.strip().lower()
+    if not clean or len(clean) < 2:
+        return {clean} if clean else set()
+
+    variants = {clean}
+
+    # 1. Homophone & spelling variations (principal <-> principle)
+    if clean.endswith("al"):
+        variants.add(clean[:-2] + "le")
+    elif clean.endswith("le"):
+        variants.add(clean[:-2] + "al")
+
+    # 2. Pluralization & common suffixes
+    if not clean.endswith("s"):
+        variants.add(clean + "s")
+        if clean.endswith(("ch", "sh", "x", "s", "z")):
+            variants.add(clean + "es")
+
+    # 3. Standard seniority abbreviations
+    if clean in ("sr", "sr.", "snr"):
+        variants.update({"sr", "sr.", "snr", "senior"})
+    elif clean == "senior":
+        variants.update({"sr", "sr.", "snr"})
+
+    # 4. Lead variations
+    if clean == "lead":
+        variants.update({"teamlead", "techlead", "leading"})
+
+    return variants
+
+
 class ProfileScorer:
     """Evaluates and scores job opportunities dynamically based on a candidate's profile."""
 
@@ -478,6 +516,15 @@ class ProfileScorer:
         self.negative_keywords = [n.lower() for n in prof.get("negative_keywords", [])]
         self.negative_title_keywords = [nt.lower() for nt in prof.get("negative_title_keywords", [])]
         self.locations = [l.lower() for l in prof.get("locations", [])]
+
+        # Dynamically compile expanded negative keywords directly from candidate profile
+        self.expanded_negative_title_keywords = set()
+        for nt in self.negative_title_keywords:
+            self.expanded_negative_title_keywords.update(expand_profile_keyword_variants(nt))
+
+        self.expanded_negative_keywords = set()
+        for n in self.negative_keywords:
+            self.expanded_negative_keywords.update(expand_profile_keyword_variants(n))
 
         # Physical on-site / hybrid allowed locations from candidate profile
         self.physical_locations = set()
@@ -652,25 +699,25 @@ class ProfileScorer:
                     return -10  # Disqualified: Requires language candidate does not speak fluently
 
 
-        # 2. Profile Title-Only Exclusions (Disqualify if keyword appears in job title)
-        # Exempt if title explicitly welcomes Juniors, Working Students, or Interns (e.g. "Junior/Senior")
+        # 2. Profile Title-Only Exclusions (Disqualify if any profile negative title keyword or variant appears)
         welcomes_entry = any(re.search(rf"\b{re.escape(w)}\b", lower_title) for w in ("junior", "werkstudent", "working student", "intern", "praktikant", "associate", "trainee"))
-        for blocker in self.negative_title_keywords:
-            if blocker in ("senior", "sr.", "sr") and welcomes_entry:
+        for blocker in self.expanded_negative_title_keywords:
+            if blocker in ("senior", "sr.", "sr", "snr") and welcomes_entry:
                 continue
             if re.search(rf"\b{re.escape(blocker)}\b", lower_title):
                 return -10
 
-        # 3. Profile General Negative Exclusions
-        # Role/domain blockers should ONLY disqualify if present in the title
-        # Experience blockers (e.g. '8+ years') disqualify if found in text
-        for neg in self.negative_keywords:
+        # 3. Profile General Negative Exclusions & Level Requirements
+        for neg in self.expanded_negative_keywords:
             if re.search(r"\d+\+?\s*years?", neg):
                 if neg in text:
                     return -10
             else:
                 if re.search(rf"\b{re.escape(neg)}\b", lower_title):
                     return -10
+                if not welcomes_entry:
+                    if re.search(rf"\b(?:operating\s+at|level\s*:\s*|role\s*:\s*|as\s+(?:a\s+)?){re.escape(neg)}\b", text):
+                        return -10
 
         score = 0
 
@@ -687,13 +734,17 @@ class ProfileScorer:
                 break
 
         matched_skill = False
+        skill_score = 0
         for skill in self.skills:
             if re.search(rf"\b{re.escape(skill)}\b", lower_title):
                 matched_skill = True
-                score += 2
+                skill_score += 2
             elif re.search(rf"\b{re.escape(skill)}\b", text):
                 matched_skill = True
-                score += 1
+                skill_score += 1
+
+        # Cap skill match bonus at +4 max to prevent keyword stuffing inflation
+        score += min(4, skill_score)
 
         # Must match at least one target role or skill to be considered relevant
         if not (matched_role or matched_skill):
@@ -788,7 +839,8 @@ class ProfileScorer:
         if is_target_company:
             score += 3  # High boost for designated target companies!
 
-        return score
+        # Final score normalization: strictly clamp between 0 and 10
+        return max(0, min(10, score))
 
 
 DEFAULT_SCORER = ProfileScorer(ACTIVE_PROFILE)
