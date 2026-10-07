@@ -79,8 +79,24 @@ ATS_SITE_MAP = {
     "stellenwerk": "stellenwerk.de"
 }
 
-def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
-    """Generates clean ATS search dorks based on candidate profile."""
+COUNTRY_HUB_MAP = {
+    "germany": ["Berlin", "München", "Hamburg", "Frankfurt", "Nürnberg", "Stuttgart", "Köln"],
+    "switzerland": ["Zürich", "Geneva", "Basel", "Bern", "Lausanne", "Zug"],
+    "austria": ["Wien", "Graz", "Linz", "Salzburg", "Innsbruck"],
+    "united kingdom": ["London", "Manchester", "Bristol", "Cambridge", "Edinburgh"],
+    "uk": ["London", "Manchester", "Bristol", "Cambridge", "Edinburgh"],
+    "netherlands": ["Amsterdam", "Rotterdam", "Utrecht", "Eindhoven", "Delft"],
+    "united states": ["San Francisco", "New York", "Seattle", "Austin", "Boston"],
+    "us": ["San Francisco", "New York", "Seattle", "Austin", "Boston"],
+    "ireland": ["Dublin", "Cork", "Galway"],
+    "france": ["Paris", "Lyon", "Toulouse", "Nantes"],
+    "spain": ["Madrid", "Barcelona", "Valencia"],
+    "poland": ["Warsaw", "Krakow", "Wroclaw"],
+    "canada": ["Toronto", "Vancouver", "Montreal", "Waterloo"],
+}
+
+def generate_search_dorks(profile: Dict[str, Any], country: str = None) -> Dict[str, List[str]]:
+    """Generates clean ATS search dorks based on candidate profile and optional target country."""
     roles = profile.get("target_roles", [])
     contract_types = profile.get("contract_types", [])
     platforms = profile.get("ats_platforms", [])
@@ -90,6 +106,9 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
         "all_roles": []
     }
 
+    country_clean = country.strip() if country and country.strip().lower() not in ("all", "all (profile default)", "any") else None
+    country_lower = country_clean.lower() if country_clean else None
+
     # 1. Generate clean per-platform dorks for top roles
     for plat in platforms:
         plat_str = str(plat).strip()
@@ -97,65 +116,80 @@ def generate_search_dorks(profile: Dict[str, Any]) -> Dict[str, List[str]]:
         if not plat_str:
             continue
         if plat_lower in ("twitter", "x"):
+            loc_suffix = f' "{country_clean}"' if country_clean else ""
             for role in roles[:2]:
-                queries_by_category["all_roles"].append(f'site:x.com "hiring" "{role}"')
+                queries_by_category["all_roles"].append(f'site:x.com "hiring" "{role}"{loc_suffix}')
             if contract_types and roles:
-                queries_by_category["all_roles"].append(f'site:x.com "hiring" "{contract_types[0]}" "{roles[0]}"')
+                queries_by_category["all_roles"].append(f'site:x.com "hiring" "{contract_types[0]}" "{roles[0]}"{loc_suffix}')
             continue
 
         if plat_lower == "stellenwerk":
             # Targeted German university job portal dorks (prioritizing Erlangen-Nürnberg & Bavaria)
-            primary_role = roles[0] if roles else "Software Engineer"
-            queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{primary_role}"')
-            if len(roles) > 1:
-                queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{roles[1]}"')
-            if contract_types:
-                queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{contract_types[0]}"')
-                queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{contract_types[0]}" "{primary_role}"')
+            if not country_lower or country_lower in ("germany", "deutschland", "de"):
+                primary_role = roles[0] if roles else "Software Engineer"
+                queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{primary_role}"')
+                if len(roles) > 1:
+                    queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{roles[1]}"')
+                if contract_types:
+                    queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{contract_types[0]}"')
+                    queries_by_category["all_roles"].append(f'site:stellenwerk.de/erlangen-nuernberg "{contract_types[0]}" "{primary_role}"')
             continue
 
         site_dork = ATS_SITE_MAP.get(plat_lower)
         if not site_dork and "." in plat_str:
-            # Custom portal / domain directly from profile (e.g. "join.com" or "stellenwerk.de/erlangen-nuernberg")
             site_dork = plat_str
 
         if not site_dork:
             continue
 
         site_prefix = f"site:{site_dork}" if not site_dork.startswith("site:") else site_dork
-        for role in roles[:3]:
-            queries_by_category["all_roles"].append(f'{site_prefix} "{role}"')
+        
+        # When a country is specified, add explicit country-targeted dorks
+        if country_clean:
+            for role in roles[:3]:
+                queries_by_category["all_roles"].append(f'{site_prefix} "{role}" "{country_clean}"')
+            if contract_types and roles:
+                queries_by_category["all_roles"].append(f'{site_prefix} "{contract_types[0]}" "{roles[0]}" "{country_clean}"')
+        else:
+            for role in roles[:3]:
+                queries_by_category["all_roles"].append(f'{site_prefix} "{role}"')
+            for ct in contract_types[:2]:
+                if roles:
+                    queries_by_category["all_roles"].append(f'{site_prefix} "{ct}" "{roles[0]}"')
 
-        # Pair top contract types with primary target role
-        for ct in contract_types[:2]:
-            if roles:
-                queries_by_category["all_roles"].append(f'{site_prefix} "{ct}" "{roles[0]}"')
+    # 2. Add City-Targeted searches for key tech hubs
+    target_cities = []
+    if country_lower and country_lower in COUNTRY_HUB_MAP:
+        target_cities = list(COUNTRY_HUB_MAP[country_lower])
+    else:
+        locations = profile.get("locations", [])
+        general_loc_words = {"remote", "europe", "germany", "deutschland", "remote germany", "worldwide", "hybrid", "united states"}
+        candidate_cities = [
+            loc.strip() for loc in locations
+            if loc.strip().lower() not in general_loc_words
+        ]
+        is_targeting_germany = any(
+            g in [l.lower() for l in locations]
+            for g in ("germany", "deutschland", "nürnberg", "münchen", "berlin", "hamburg", "frankfurt")
+        )
+        if is_targeting_germany:
+            for c in candidate_cities:
+                if c not in target_cities:
+                    target_cities.append(c)
+            for hub in COUNTRY_HUB_MAP["germany"]:
+                if hub not in target_cities and len(target_cities) < 8:
+                    target_cities.append(hub)
 
-    # 2. Add City-Targeted searches for key German tech hubs (Personio, Ashby)
-    locations = profile.get("locations", [])
-    general_loc_words = {"remote", "europe", "germany", "deutschland", "remote germany", "worldwide", "hybrid", "united states"}
-    candidate_cities = [
-        loc.strip() for loc in locations
-        if loc.strip().lower() not in general_loc_words
-    ]
-    is_targeting_germany = any(
-        g in [l.lower() for l in locations]
-        for g in ("germany", "deutschland", "nürnberg", "münchen", "berlin", "hamburg", "frankfurt")
-    )
-    if is_targeting_germany:
-        target_cities = []
-        for c in candidate_cities:
-            if c not in target_cities:
-                target_cities.append(c)
-        for hub in ["Berlin", "München", "Hamburg", "Frankfurt", "Karlsruhe", "Stuttgart"]:
-            if hub not in target_cities and len(target_cities) < 8:
-                target_cities.append(hub)
-
+    if target_cities:
         primary_role = roles[0] if roles else "Software Engineer"
         for city in target_cities[:5]:
-            queries_by_category["all_roles"].append(f'site:personio.de/job "{primary_role}" {city}')
-            if contract_types:
-                queries_by_category["all_roles"].append(f'site:personio.de/job "{contract_types[0]}" {city}')
+            if not country_lower or country_lower in ("germany", "deutschland", "de"):
+                queries_by_category["all_roles"].append(f'site:personio.de/job "{primary_role}" {city}')
+                if contract_types:
+                    queries_by_category["all_roles"].append(f'site:personio.de/job "{contract_types[0]}" {city}')
+            else:
+                queries_by_category["all_roles"].append(f'site:jobs.ashbyhq.com "{primary_role}" "{city}"')
+                queries_by_category["all_roles"].append(f'site:boards.greenhouse.io "{primary_role}" "{city}"')
 
     # 3. Add Target Companies career searches
     target_companies = profile.get("target_companies", [])

@@ -505,11 +505,66 @@ def expand_profile_keyword_variants(keyword: str) -> set:
     return variants
 
 
+COUNTRY_CITY_MAP = {
+    "germany": {
+        "berlin", "münchen", "munich", "hamburg", "frankfurt", "frankfurt am main", "köln", "cologne",
+        "stuttgart", "düsseldorf", "dusseldorf", "leipzig", "dresden", "karlsruhe",
+        "nürnberg", "nuremberg", "erlangen", "fürth", "fuerth", "hannover", "hanover", "bonn",
+        "mannheim", "heidelberg", "darmstadt", "aachen", "bremen", "freiburg",
+        "regensburg", "ingolstadt", "ulm", "augsburg", "würzburg", "wuerzburg",
+        "bayern", "bavaria", "baden-württemberg", "nrw", "hessen", "germany", "deutschland", "de"
+    },
+    "switzerland": {
+        "zurich", "zürich", "geneva", "genf", "basel", "bern", "lausanne", "lucerne", "luzern",
+        "st. gallen", "zug", "winterthur", "lugano", "biel", "switzerland", "schweiz", "suisse", "ch"
+    },
+    "austria": {
+        "vienna", "wien", "graz", "linz", "salzburg", "innsbruck", "klagenfurt", "villach", "austria", "österreich", "at"
+    },
+    "united kingdom": {
+        "london", "manchester", "birmingham", "edinburgh", "bristol", "cambridge", "oxford",
+        "leeds", "glasgow", "sheffield", "belfast", "cardiff", "united kingdom", "uk", "great britain", "gb"
+    },
+    "uk": {
+        "london", "manchester", "birmingham", "edinburgh", "bristol", "cambridge", "oxford",
+        "leeds", "glasgow", "sheffield", "belfast", "cardiff", "united kingdom", "uk", "great britain", "gb"
+    },
+    "netherlands": {
+        "amsterdam", "rotterdam", "utrecht", "the hague", "den haag", "eindhoven", "delft",
+        "groningen", "tilburg", "netherlands", "holland", "nl"
+    },
+    "united states": {
+        "new york", "san francisco", "seattle", "austin", "boston", "chicago", "los angeles",
+        "denver", "atlanta", "washington", "san jose", "united states", "usa", "us"
+    },
+    "us": {
+        "new york", "san francisco", "seattle", "austin", "boston", "chicago", "los angeles",
+        "denver", "atlanta", "washington", "san jose", "united states", "usa", "us"
+    },
+    "ireland": {
+        "dublin", "cork", "galway", "limerick", "waterford", "ireland", "ie"
+    },
+    "france": {
+        "paris", "lyon", "toulouse", "nice", "nantes", "strasbourg", "montpellier", "bordeaux", "lille", "france", "fr"
+    },
+    "spain": {
+        "madrid", "barcelona", "valencia", "seville", "bilbao", "malaga", "spain", "españa", "es"
+    },
+    "poland": {
+        "warsaw", "krakow", "wroclaw", "gdansk", "poznan", "lodz", "poland", "polska", "pl"
+    },
+    "canada": {
+        "toronto", "vancouver", "montreal", "ottawa", "calgary", "edmonton", "waterloo", "canada", "ca"
+    }
+}
+
+
 class ProfileScorer:
     """Evaluates and scores job opportunities dynamically based on a candidate's profile."""
 
-    def __init__(self, profile: Optional[Dict[str, Any]] = None):
+    def __init__(self, profile: Optional[Dict[str, Any]] = None, target_country: Optional[str] = None):
         prof = profile or ACTIVE_PROFILE
+        self.target_country = target_country.strip() if target_country and target_country.strip().lower() not in ("all", "all (profile default)", "any") else None
         self.target_roles = [r.lower() for r in prof.get("target_roles", [])]
         self.skills = [s.lower() for s in prof.get("skills", [])]
         self.contract_types = [c.lower() for c in prof.get("contract_types", [])]
@@ -526,30 +581,40 @@ class ProfileScorer:
         for n in self.negative_keywords:
             self.expanded_negative_keywords.update(expand_profile_keyword_variants(n))
 
-        # Physical on-site / hybrid allowed locations from candidate profile
+        # Physical on-site / hybrid allowed locations
         self.physical_locations = set()
-        for loc in self.locations:
-            l_clean = loc.strip().lower()
-            if l_clean not in ("remote", "remote germany", "remote europe", "worldwide", "anywhere", "europe"):
-                self.physical_locations.add(l_clean)
+        if self.target_country:
+            tc_lower = self.target_country.lower()
+            if tc_lower in COUNTRY_CITY_MAP:
+                self.physical_locations.update(COUNTRY_CITY_MAP[tc_lower])
+            else:
+                self.physical_locations.add(tc_lower)
+            self.locations = list(self.physical_locations) + [self.target_country.lower(), f"remote {self.target_country.lower()}", "remote"]
+        else:
+            for loc in self.locations:
+                l_clean = loc.strip().lower()
+                if l_clean not in ("remote", "remote germany", "remote europe", "worldwide", "anywhere", "europe"):
+                    self.physical_locations.add(l_clean)
 
-        # If candidate targets Germany, automatically recognize all major German cities & states
-        if any(g in self.locations for g in ("germany", "deutschland", "de")):
-            german_cities = {
-                "berlin", "münchen", "munich", "hamburg", "frankfurt", "frankfurt am main", "köln", "cologne",
-                "stuttgart", "düsseldorf", "dusseldorf", "leipzig", "dresden", "karlsruhe",
-                "nürnberg", "nuremberg", "erlangen", "fürth", "fuerth", "hannover", "hanover", "bonn",
-                "mannheim", "heidelberg", "darmstadt", "aachen", "bremen", "freiburg",
-                "regensburg", "ingolstadt", "ulm", "augsburg", "würzburg", "wuerzburg",
-                "bayern", "bavaria", "baden-württemberg", "nrw", "hessen"
-            }
-            self.physical_locations.update(german_cities)
+            # If candidate targets Germany, automatically recognize all major German cities & states
+            if any(g in self.locations for g in ("germany", "deutschland", "de")):
+                self.physical_locations.update(COUNTRY_CITY_MAP["germany"])
 
         self.expanded_locations = set(self.locations) | self.physical_locations
         self.allows_remote = any(r in self.locations for r in ("remote", "remote germany", "remote europe", "europe", "worldwide", "anywhere"))
 
         # Out-of-scope locations excluding candidate's physical locations
         self.effective_out_of_scope = {loc for loc in OUT_OF_SCOPE_LOCATIONS if loc not in self.physical_locations}
+
+        # When targeting a specific country, treat major cities of other countries as out of scope
+        if self.target_country:
+            tc_lower = self.target_country.lower()
+            for other_country, cities in COUNTRY_CITY_MAP.items():
+                if other_country != tc_lower and other_country not in ("uk" if tc_lower == "united kingdom" else "us" if tc_lower == "united states" else ""):
+                    for oc in cities:
+                        if oc not in self.physical_locations:
+                            self.effective_out_of_scope.add(oc)
+
         sorted_oos = sorted(self.effective_out_of_scope, key=len, reverse=True)
         self.oos_regex = re.compile(
             r"\b(" + "|".join(re.escape(loc) for loc in sorted_oos) + r")\b",
@@ -1130,15 +1195,24 @@ def run_scout(
     profile_data: Optional[Dict[str, Any]] = None,
     queries_dict: Optional[Dict[str, List[str]]] = None,
     max_queries: int = 25,
-    rescan: bool = False
+    rescan: bool = False,
+    country: Optional[str] = None
 ):
+    clean_country = country.strip() if country and country.strip().lower() not in ("all", "all (profile default)", "any") else None
     print(f"\n🚀 Running Job Scout for categories: {', '.join(categories)}")
+    if clean_country:
+        print(f"🌍 Country filter: {clean_country}")
     print(f"⏱️  Time filter: {'Past 24 hours' if timelimit == 'd' else 'Past week'}")
     if rescan:
         print("🔄 Rescan mode enabled: evaluating all postings without seen cache restrictions.")
 
-    scorer = ProfileScorer(profile_data)
-    active_queries = queries_dict or SEARCH_QUERIES
+    if clean_country:
+        from config import generate_search_dorks
+        scorer = ProfileScorer(profile_data, target_country=clean_country)
+        active_queries = queries_dict or generate_search_dorks(profile_data or ACTIVE_PROFILE, country=clean_country)
+    else:
+        scorer = ProfileScorer(profile_data)
+        active_queries = queries_dict or SEARCH_QUERIES
 
     if rescan:
         seen_urls = set()
@@ -1193,8 +1267,21 @@ def run_scout(
 
     # 2. Free Job APIs (Arbeitnow & Jobicy & Remotive)
     if include_apis:
-        print("\n🌐 Querying direct tech job feeds (Germany & Remote Europe)...")
-        api_jobs = fetch_arbeitnow_jobs() + fetch_jobicy_jobs() + fetch_remotive_jobs()
+        api_country_desc = f" ({clean_country})" if clean_country else " (Germany & Remote Europe)"
+        print(f"\n🌐 Querying direct tech job feeds{api_country_desc}...")
+        api_jobs = []
+        if not clean_country or clean_country.lower() in ("germany", "deutschland", "de"):
+            api_jobs.extend(fetch_arbeitnow_jobs())
+        
+        # Remote feeds (Jobicy & Remotive)
+        for feed_job in (fetch_jobicy_jobs() + fetch_remotive_jobs()):
+            loc_str = feed_job.get("location", "").lower()
+            if clean_country:
+                if clean_country.lower() in loc_str or any(rw in loc_str for rw in ("remote", "worldwide", "anywhere")):
+                    api_jobs.append(feed_job)
+            else:
+                api_jobs.append(feed_job)
+
         for r in api_jobs:
             url = r.get("url", "")
             if url in seen_urls:
@@ -1273,6 +1360,12 @@ def main():
         help="Category of roles to scout (default: all)"
     )
     parser.add_argument(
+        "--country",
+        "-c",
+        default=None,
+        help="Target country for search dorks and location filtering (e.g. Germany, Switzerland, UK, US, Netherlands)"
+    )
+    parser.add_argument(
         "--fresh",
         choices=["24h", "week", "any"],
         default="week",
@@ -1311,7 +1404,11 @@ def main():
     if args.profile:
         from config import load_profile, generate_search_dorks
         profile_data = load_profile(args.profile)
-        queries = generate_search_dorks(profile_data)
+        queries = generate_search_dorks(profile_data, country=args.country)
+    elif args.country:
+        from config import generate_search_dorks
+        profile_data = ACTIVE_PROFILE
+        queries = generate_search_dorks(profile_data, country=args.country)
     else:
         profile_data = ACTIVE_PROFILE
         queries = SEARCH_QUERIES
@@ -1329,7 +1426,8 @@ def main():
         profile_data=profile_data,
         queries_dict=queries,
         max_queries=args.max_queries,
-        rescan=args.rescan
+        rescan=args.rescan,
+        country=args.country
     )
 
 if __name__ == "__main__":
